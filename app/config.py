@@ -4,6 +4,15 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     APP_TITLE: str = "Slide Studio"
     DATA_DIR: str = "/app/data"
+    ENGINE_DIR: str = "/Users/mykim/claude/rh-slide-skill"
+
+    USE_VERTEX: bool = True
+    VERTEX_PROJECT_ID: str = ""
+    VERTEX_REGION: str = "us-east5"
+    ANTHROPIC_API_KEY: str = ""
+    MODEL_NAME: str = "claude-opus-4-6"
+    MAX_OUTPUT_TOKENS: int = 16384
+
     ADMIN_EMAIL: str = "barracuda0704@gmail.com"
     ADMIN_INITIAL_PASSWORD: str = "***REMOVED***"
     SESSION_COOKIE_NAME: str = "session_token"

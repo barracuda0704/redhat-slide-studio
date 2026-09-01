@@ -6,6 +6,26 @@
 <title>Slide Studio</title>
 <style>html{background:#151515}</style>
 <link rel="stylesheet" href="/static/style.css">
+<style>
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.project-card {
+  background: var(--bg-card, #1e1e1e); border: 1px solid var(--border-color); border-radius: 6px;
+  padding: 20px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.project-card:hover { border-color: var(--rh-red); box-shadow: 0 2px 12px rgba(238,0,0,0.1); }
+.project-card h3 { margin: 0 0 6px; font-size: 15px; color: var(--text-primary); }
+.project-card .desc { color: var(--text-muted); font-size: 12px; margin: 0 0 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card .meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.project-card .meta-item { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+.project-card .badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; text-transform: uppercase;
+}
+.badge-draft { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+.badge-generating { background: rgba(245,146,27,0.15); color: #f5921b; }
+.badge-completed { background: rgba(76,175,80,0.15); color: #4caf50; }
+.badge-building { background: rgba(238,0,0,0.15); color: var(--rh-red); }
+.badge-failed { background: rgba(238,0,0,0.15); color: #ee0000; }
+</style>
 </head>
 <body>
 
@@ -29,23 +49,26 @@
   <div class="page-subheading">프레젠테이션을 생성하고 관리하세요.</div>
 </div>
 
-  <main class="content">
-    <div class="content-inner">
-      <div class="card">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px">
-          <h2 style="margin:0">내 프레젠테이션</h2>
-          <button class="btn btn-primary" id="newProjectBtn" disabled>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-            새 프레젠테이션 만들기
-          </button>
-        </div>
-        <div class="empty" id="emptyState">
-          <p style="color:var(--text-muted); font-size:14px; margin:32px 0;">아직 생성된 프레젠테이션이 없습니다.</p>
-          <p style="color:var(--text-muted); font-size:13px;">프레젠테이션 생성 기능은 곧 추가됩니다.</p>
-        </div>
+<main class="content">
+  <div class="content-inner">
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px">
+        <h2 style="margin:0">내 프레젠테이션</h2>
+        <a href="/new" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          새 프레젠테이션 만들기
+        </a>
       </div>
+
+      <div id="projectGrid" class="project-grid"></div>
+      <div class="empty" id="emptyState" style="display:none">
+        <p style="color:var(--text-muted); font-size:14px; margin:32px 0;">아직 생성된 프레젠테이션이 없습니다.</p>
+        <a href="/new" class="btn btn-primary" style="display:inline-flex">새 프레젠테이션 만들기</a>
+      </div>
+      <div id="loadingState" style="text-align:center; padding:32px; color:var(--text-muted); font-size:14px;">불러오는 중...</div>
     </div>
-  </main>
+  </div>
+</main>
 
 <script>
 const ICON_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>';
@@ -64,16 +87,45 @@ async function loadNavUser() {
     if (!res.ok) { window.location.href = '/login'; return; }
     const me = await res.json();
     document.getElementById('navUser').innerHTML = navUserHTML(me);
-  } catch (e) { window.location.href = '/login'; }
+  } catch(e) { window.location.href = '/login'; }
+}
+async function logout() { await fetch('/api/logout', {method:'POST'}); window.location.href = '/login'; }
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('ko-KR', {year:'numeric', month:'short', day:'numeric'});
 }
 
-async function logout() {
-  await fetch('/api/logout', { method: 'POST' });
-  window.location.href = '/login';
+async function loadProjects() {
+  const res = await fetch('/api/projects');
+  document.getElementById('loadingState').style.display = 'none';
+  if (!res.ok) return;
+  const projects = await res.json();
+
+  if (projects.length === 0) {
+    document.getElementById('emptyState').style.display = 'block';
+    return;
+  }
+
+  const grid = document.getElementById('projectGrid');
+  grid.innerHTML = projects.map(p => {
+    const statusLabels = {draft:'DRAFT', generating:'생성 중', completed:'완료', building:'빌드 중', failed:'실패'};
+    return '<div class="project-card" onclick="window.location.href=\'/projects/' + p.name + '\'">' +
+      '<h3>' + (p.title || p.name) + '</h3>' +
+      '<p class="desc">' + (p.description || '설명 없음') + '</p>' +
+      '<div class="meta">' +
+        '<span class="badge badge-' + p.status + '">' + (statusLabels[p.status] || p.status) + '</span>' +
+        '<span class="meta-item">' + p.slides + '장</span>' +
+        (p.has_pptx ? '<span class="meta-item">PPTX</span>' : '') +
+        '<span class="meta-item">' + formatDate(p.created) + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
 }
 
 loadNavUser();
+loadProjects();
 </script>
-
 </body>
 </html>

@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>프로젝트 - Slide Studio</title>
+<style>html{background:#151515}</style>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.project-layout { display: grid; grid-template-columns: 240px 1fr; gap: 0; min-height: calc(100vh - 200px); }
+.slide-sidebar { background: var(--bg-card, #1e1e1e); border-right: 1px solid var(--border-color); padding: 16px 0; overflow-y: auto; }
+.slide-list-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer;
+  color: var(--text-secondary); font-size: 13px; transition: background 0.15s;
+  border-left: 3px solid transparent;
+}
+.slide-list-item:hover { background: rgba(255,255,255,0.04); }
+.slide-list-item.active { background: rgba(238,0,0,0.08); border-left-color: var(--rh-red); color: var(--text-primary); }
+.slide-num { font-weight: 700; color: var(--rh-red); min-width: 24px; text-align: center; font-size: 12px; }
+.slide-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+
+.slide-main { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+.toolbar {
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  background: var(--bg-card, #1e1e1e); border-radius: 6px; flex-wrap: wrap;
+}
+.toolbar .btn { font-size: 13px; padding: 7px 14px; }
+.toolbar .status-badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+}
+.status-draft { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+.status-generating { background: rgba(238,0,0,0.15); color: #f5921b; }
+.status-completed { background: rgba(0,150,0,0.15); color: #4caf50; }
+.status-building { background: rgba(238,0,0,0.15); color: var(--rh-red); }
+.status-failed { background: rgba(238,0,0,0.15); color: #ee0000; }
+
+.preview-container {
+  flex: 1; background: #000; border-radius: 6px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; min-height: 400px;
+  position: relative;
+}
+.preview-container iframe {
+  width: 720px; height: 405px; border: none; background: #fff;
+  transform-origin: center center;
+}
+.preview-empty { color: var(--text-muted); font-size: 14px; }
+
+.tab-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border-color); margin-bottom: 0; }
+.tab-btn {
+  padding: 8px 18px; cursor: pointer; color: var(--text-muted); font-size: 13px;
+  border-bottom: 2px solid transparent; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none;
+}
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.active { color: var(--rh-red); border-bottom-color: var(--rh-red); }
+
+.content-editor { display: none; }
+.content-editor textarea {
+  width: 100%; min-height: 500px; box-sizing: border-box; padding: 16px;
+  background: var(--bg-input, #1a1a1a); color: var(--text-primary); border: 1px solid var(--border-color);
+  border-radius: 4px; font-family: 'Red Hat Mono', monospace; font-size: 13px; line-height: 1.6; resize: vertical;
+}
+.html-editor { display: none; }
+.html-editor textarea {
+  width: 100%; min-height: 400px; box-sizing: border-box; padding: 16px;
+  background: var(--bg-input, #1a1a1a); color: var(--text-primary); border: 1px solid var(--border-color);
+  border-radius: 4px; font-family: 'Red Hat Mono', monospace; font-size: 12px; line-height: 1.5; resize: vertical;
+}
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.section-header h3 { margin: 0; font-size: 14px; color: var(--text-primary); }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+  <div class="masthead-brand">
+    <a href="/" class="masthead-home-link">
+      <span class="rh-mark"></span>
+      <span class="masthead-title">Slide Studio</span>
+    </a>
+    <span class="masthead-context" id="projectTitle">프로젝트</span>
+  </div>
+  <nav class="masthead-nav">
+    <a href="/" class="masthead-nav-link">대시보드</a>
+  </nav>
+  <div class="nav-user" id="navUser"></div>
+</div>
+
+<main class="content" style="padding:0; max-width:none;">
+  <div class="project-layout">
+    <!-- Sidebar: slide list -->
+    <div class="slide-sidebar">
+      <div style="padding:0 16px 12px; border-bottom:1px solid var(--border-color); margin-bottom:8px;">
+        <h3 style="margin:0 0 4px; font-size:13px; color:var(--text-primary);">슬라이드</h3>
+        <div style="font-size:11px; color:var(--text-muted);" id="slideCount">0장</div>
+      </div>
+      <div id="slideList"></div>
+    </div>
+
+    <!-- Main area -->
+    <div class="slide-main">
+      <div class="toolbar">
+        <span class="status-badge" id="statusBadge">DRAFT</span>
+        <div style="flex:1"></div>
+        <button class="btn" id="buildBtn" onclick="buildPptx()" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M4 4h16v16H4z"/><path d="M9 9h6v6H9z"/></svg>
+          PPTX 빌드
+        </button>
+        <button class="btn" id="downloadBtn" onclick="downloadPptx()" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+          다운로드
+        </button>
+        <button class="btn btn-danger" onclick="deleteProject()">삭제</button>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="preview" onclick="switchTab('preview')">미리보기</button>
+        <button class="tab-btn" data-tab="html" onclick="switchTab('html')">HTML 편집</button>
+        <button class="tab-btn" data-tab="content" onclick="switchTab('content')">Content.md</button>
+      </div>
+
+      <!-- Preview -->
+      <div id="previewTab">
+        <div class="preview-container" id="previewContainer">
+          <div class="preview-empty" id="previewEmpty">슬라이드를 선택하세요.</div>
+          <iframe id="previewFrame" style="display:none"></iframe>
+        </div>
+      </div>
+
+      <!-- HTML Editor -->
+      <div class="html-editor" id="htmlTab">
+        <div class="section-header">
+          <h3 id="htmlEditorTitle">HTML 편집</h3>
+          <button class="btn btn-primary" onclick="saveSlideHtml()" style="font-size:12px; padding:5px 12px;">저장</button>
+        </div>
+        <textarea id="htmlEditor" spellcheck="false"></textarea>
+      </div>
+
+      <!-- Content Editor -->
+      <div class="content-editor" id="contentTab">
+        <div class="section-header">
+          <h3>Content.md</h3>
+          <button class="btn btn-primary" onclick="saveContent()" style="font-size:12px; padding:5px 12px;">저장</button>
+        </div>
+        <textarea id="contentEditor" spellcheck="false"></textarea>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const ICON_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>';
+const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h4"/><path d="M15 16l4-4-4-4"/><path d="M19 12H9"/></svg>';
+function navUserHTML(me) {
+  return '<span class="avatar">' + me.email.charAt(0).toUpperCase() + '</span>' +
+    '<span class="email">' + me.email + '</span>' +
+    (me.role === 'admin' ? '<a href="/admin" title="관리자 페이지">' + ICON_SHIELD + '관리자</a>' : '') +
+    '<a href="#" onclick="logout(); return false;" title="로그아웃">' + ICON_LOGOUT + '로그아웃</a>';
+}
+async function loadNavUser() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) { window.location.href = '/login'; return; }
+    const me = await res.json();
+    document.getElementById('navUser').innerHTML = navUserHTML(me);
+  } catch(e) { window.location.href = '/login'; }
+}
+async function logout() { await fetch('/api/logout', {method:'POST'}); window.location.href = '/login'; }
+
+const projectName = window.location.pathname.split('/projects/')[1]?.replace(/\/$/, '');
+let currentSlide = null;
+let project = null;
+
+function updateStatusBadge(status) {
+  const badge = document.getElementById('statusBadge');
+  const labels = {draft:'DRAFT', generating:'생성 중...', completed:'완료', building:'빌드 중...', failed:'실패'};
+  badge.textContent = labels[status] || status;
+  badge.className = 'status-badge status-' + status;
+}
+
+async function loadProject() {
+  const res = await fetch('/api/projects/' + projectName);
+  if (!res.ok) { window.location.href = '/'; return; }
+  project = await res.json();
+  document.getElementById('projectTitle').textContent = project.title;
+  document.title = project.title + ' - Slide Studio';
+  updateStatusBadge(project.status);
+
+  document.getElementById('buildBtn').disabled = !project.slides || project.slides.length === 0;
+  document.getElementById('downloadBtn').disabled = !project.has_pptx;
+
+  const slides = project.slides || [];
+  document.getElementById('slideCount').textContent = slides.length + '장';
+  const list = document.getElementById('slideList');
+  list.innerHTML = '';
+  slides.forEach((s, i) => {
+    const item = document.createElement('div');
+    item.className = 'slide-list-item' + (currentSlide === s ? ' active' : '');
+    item.innerHTML = '<span class="slide-num">' + (i+1) + '</span><span class="slide-name">' + s.replace('.html','') + '</span>';
+    item.onclick = () => selectSlide(s);
+    list.appendChild(item);
+  });
+
+  if (slides.length > 0 && !currentSlide) selectSlide(slides[0]);
+
+  if (project.status === 'generating') {
+    setTimeout(loadProject, 3000);
+  }
+}
+
+function selectSlide(filename) {
+  currentSlide = filename;
+  document.querySelectorAll('.slide-list-item').forEach((el, i) => {
+    el.className = 'slide-list-item' + ((project.slides || [])[i] === filename ? ' active' : '');
+  });
+
+  const frame = document.getElementById('previewFrame');
+  const empty = document.getElementById('previewEmpty');
+  frame.style.display = 'block';
+  empty.style.display = 'none';
+  frame.src = '/api/projects/' + projectName + '/slides/' + filename + '/preview';
+
+  // scale iframe to fit
+  requestAnimationFrame(() => {
+    const container = document.getElementById('previewContainer');
+    const cw = container.clientWidth - 20;
+    const ch = container.clientHeight - 20;
+    const scale = Math.min(cw / 720, ch / 405, 1.2);
+    frame.style.transform = 'scale(' + scale + ')';
+  });
+
+  // load HTML editor
+  loadSlideHtml(filename);
+}
+
+async function loadSlideHtml(filename) {
+  const res = await fetch('/api/projects/' + projectName + '/slides/' + filename);
+  if (res.ok) {
+    const data = await res.json();
+    document.getElementById('htmlEditor').value = data.html;
+    document.getElementById('htmlEditorTitle').textContent = 'HTML 편집 — ' + filename;
+  }
+}
+
+async function saveSlideHtml() {
+  if (!currentSlide) return;
+  const html = document.getElementById('htmlEditor').value;
+  const res = await fetch('/api/projects/' + projectName + '/slides/' + currentSlide, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({html})
+  });
+  if (res.ok) {
+    selectSlide(currentSlide);
+    showToast('저장 완료');
+  }
+}
+
+async function loadContent() {
+  const res = await fetch('/api/projects/' + projectName + '/content');
+  if (res.ok) {
+    const data = await res.json();
+    document.getElementById('contentEditor').value = data.content;
+  }
+}
+
+async function saveContent() {
+  const content = document.getElementById('contentEditor').value;
+  const res = await fetch('/api/projects/' + projectName + '/content', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content})
+  });
+  if (res.ok) showToast('Content.md 저장 완료');
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('previewTab').style.display = tab === 'preview' ? '' : 'none';
+  document.getElementById('htmlTab').style.display = tab === 'html' ? 'block' : 'none';
+  document.getElementById('contentTab').style.display = tab === 'content' ? 'block' : 'none';
+  if (tab === 'content') loadContent();
+  if (tab === 'preview' && currentSlide) selectSlide(currentSlide);
+}
+
+async function buildPptx() {
+  const btn = document.getElementById('buildBtn');
+  btn.disabled = true;
+  btn.textContent = '빌드 중...';
+  updateStatusBadge('building');
+
+  try {
+    const res = await fetch('/api/projects/' + projectName + '/build', {method:'POST'});
+    const data = await res.json();
+    if (res.ok) {
+      showToast('PPTX 빌드 완료!');
+      document.getElementById('downloadBtn').disabled = false;
+      updateStatusBadge('completed');
+    } else {
+      showToast('빌드 실패: ' + (data.detail || ''), true);
+      updateStatusBadge('failed');
+    }
+  } catch(e) {
+    showToast('빌드 오류: ' + e.message, true);
+    updateStatusBadge('failed');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M4 4h16v16H4z"/><path d="M9 9h6v6H9z"/></svg> PPTX 빌드';
+}
+
+function downloadPptx() {
+  window.open('/api/projects/' + projectName + '/download', '_blank');
+}
+
+async function deleteProject() {
+  if (!confirm('정말로 이 프로젝트를 삭제하시겠습니까?')) return;
+  const res = await fetch('/api/projects/' + projectName, {method:'DELETE'});
+  if (res.ok) window.location.href = '/';
+  else showToast('삭제 실패', true);
+}
+
+function showToast(msg, isError) {
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:6px;font-size:13px;z-index:9999;color:#fff;background:' + (isError ? '#ee0000' : '#2e7d32');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// Resize handler
+window.addEventListener('resize', () => {
+  if (currentSlide) {
+    const container = document.getElementById('previewContainer');
+    const frame = document.getElementById('previewFrame');
+    const cw = container.clientWidth - 20;
+    const ch = container.clientHeight - 20;
+    const scale = Math.min(cw / 720, ch / 405, 1.2);
+    frame.style.transform = 'scale(' + scale + ')';
+  }
+});
+
+loadNavUser();
+loadProject();
+</script>
+</body>
+</html>
