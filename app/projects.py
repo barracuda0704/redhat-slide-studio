@@ -1,3 +1,4 @@
+import re
 import json
 import os
 import shutil
@@ -88,7 +89,7 @@ class ProjectManager:
         html_dir = self.projects_dir / name / version / "html"
         slides = sorted([f.name for f in html_dir.glob("slide*.html")]) if html_dir.exists() else []
         has_pptx = (self.projects_dir / name / version / "slides.pptx").exists()
-        return {"name": name, "version": version, "slides": slides, "has_pptx": has_pptx, **meta}
+        return {**meta, "name": name, "version": version, "slides": slides, "has_pptx": has_pptx}
 
     def delete_project(self, name: str) -> bool:
         project_dir = self.projects_dir / name
@@ -177,6 +178,8 @@ class ProjectManager:
             return results
         for f in sorted(themes_dir.glob("*.md")):
             name = f.stem
-            first_line = f.read_text("utf-8").split("\n")[0].strip("# ").strip()
-            results.append({"id": name, "name": first_line or name})
+            text = f.read_text("utf-8")
+            m = re.search(r'^#\s+(?:Theme:\s*)?(.+)', text, re.MULTILINE)
+            label = m.group(1).strip() if m else name
+            results.append({"id": name, "name": label})
         return results
