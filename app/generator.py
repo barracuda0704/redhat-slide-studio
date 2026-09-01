@@ -1,8 +1,13 @@
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 from .config import settings
+
+
+def _today_kr() -> str:
+    return datetime.now().strftime("%Y년 %m월 %d일")
 
 
 def _get_client():
@@ -32,7 +37,12 @@ def _load_theme_guide(engine_dir: str, theme_id: str) -> str:
     return p.read_text("utf-8") if p.exists() else ""
 
 
-CONTENT_SYSTEM = """당신은 Red Hat 기술 슬라이드 전문가입니다. 주어진 주제에 대해 슬라이드 콘텐츠(content.md)를 작성합니다.
+def _content_system(current_date: str) -> str:
+    return f"""당신은 Red Hat 기술 슬라이드 전문가입니다. 주어진 주제에 대해 슬라이드 콘텐츠(content.md)를 작성합니다.
+
+오늘 날짜는 {current_date}입니다. "현재", "올해", "최신 동향" 등은 이 날짜 기준으로 작성하세요.
+사용자가 주제/설명에서 특정 연도를 명시했다면 반드시 그 연도를 그대로 사용하세요.
+통계나 사례를 인용할 때 원 자료에 실제로 명시된 연도(예: "2024년 보고서")는 바꾸지 말고 그대로 유지하세요.
 
 작성 규칙:
 - 한국어로 작성
@@ -62,6 +72,9 @@ CONTENT_SYSTEM = """당신은 Red Hat 기술 슬라이드 전문가입니다. �
 
 def _build_slide_system(theme_css: str, icon_list: str, theme_guide: str) -> str:
     return f"""당신은 Red Hat 슬라이드 HTML 작성 전문가입니다.
+
+오늘 날짜는 {_today_kr()}입니다. content.md에 이미 적힌 연도·통계 인용은 그대로 유지하고, 새로
+연도를 표기해야 할 경우("현재", "최신" 등)에는 이 날짜를 기준으로 하세요.
 
 ## 캔버스 규격 (필수)
 - 크기: 720pt × 405pt (16:9)
@@ -134,7 +147,7 @@ def generate_content(topic: str, num_slides: int = 8, description: str = "") -> 
     response = client.messages.create(
         model=settings.MODEL_NAME,
         max_tokens=settings.MAX_OUTPUT_TOKENS,
-        system=CONTENT_SYSTEM,
+        system=_content_system(_today_kr()),
         messages=[{"role": "user", "content": user_msg}],
     )
     return response.content[0].text
