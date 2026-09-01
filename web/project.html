@@ -51,16 +51,17 @@ main.content { flex: 1; min-height: 0; display: flex; }
 
 #previewTab { flex: 1; min-height: 0; display: flex; }
 .preview-container {
-  flex: 1; min-height: 0; width: 100%; background: var(--rh-black); border-radius: 6px; overflow: hidden;
+  flex: 1; min-height: 0; width: 100%; box-sizing: border-box; background: #fff;
+  border: 1px solid var(--border-strong); border-radius: 4px; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   position: relative;
 }
 .preview-container iframe {
   width: 720px; height: 405px; border: none; background: #fff;
   transform-origin: center center;
-  box-shadow: 0 4px 24px rgba(0,0,0,.5);
+  overflow: hidden;
 }
-.preview-empty { color: #9aa0a6; font-size: 14px; }
+.preview-empty { color: var(--text-muted); font-size: 14px; }
 
 .content-editor, .html-editor { flex: 1; min-height: 0; display: none; flex-direction: column; }
 .content-editor textarea, .html-editor textarea {
@@ -222,17 +223,12 @@ function selectSlide(filename) {
   const frame = document.getElementById('previewFrame');
   const empty = document.getElementById('previewEmpty');
   frame.style.display = 'block';
+  frame.setAttribute('scrolling', 'no');
   empty.style.display = 'none';
   frame.src = '/api/projects/' + projectName + '/slides/' + filename + '/preview';
 
-  // scale iframe to fit
-  requestAnimationFrame(() => {
-    const container = document.getElementById('previewContainer');
-    const cw = container.clientWidth - 20;
-    const ch = container.clientHeight - 20;
-    const scale = Math.min(cw / 720, ch / 405, 1.2);
-    frame.style.transform = 'scale(' + scale + ')';
-  });
+  // scale iframe to fill the preview stage
+  requestAnimationFrame(fitPreviewFrame);
 
   // load HTML editor
   loadSlideHtml(filename);
@@ -332,17 +328,18 @@ function showToast(msg, isError) {
   setTimeout(() => t.remove(), 3000);
 }
 
-// Resize handler
-window.addEventListener('resize', () => {
-  if (currentSlide) {
-    const container = document.getElementById('previewContainer');
-    const frame = document.getElementById('previewFrame');
-    const cw = container.clientWidth - 20;
-    const ch = container.clientHeight - 20;
-    const scale = Math.min(cw / 720, ch / 405, 1.2);
-    frame.style.transform = 'scale(' + scale + ')';
-  }
-});
+function fitPreviewFrame() {
+  if (!currentSlide) return;
+  const container = document.getElementById('previewContainer');
+  const frame = document.getElementById('previewFrame');
+  const pad = 16;
+  const cw = container.clientWidth - pad;
+  const ch = container.clientHeight - pad;
+  const scale = Math.max(Math.min(cw / 720, ch / 405), 0.1);
+  frame.style.transform = 'scale(' + scale + ')';
+}
+
+window.addEventListener('resize', fitPreviewFrame);
 
 loadNavUser();
 loadProject();
