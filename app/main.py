@@ -240,7 +240,7 @@ async def api_create_project(body: ProjectCreate, user: User = Depends(get_curre
 
 @app.get("/api/projects")
 async def api_list_projects(user: User = Depends(get_current_user)):
-    if user.role == UserRole.ADMIN:
+    if user.role == UserRole.ADMIN or settings.LOGIN_DISABLED:
         return project_manager.list_projects()
     return project_manager.list_projects(user.email)
 
@@ -257,7 +257,7 @@ async def api_get_project(name: str, user: User = Depends(get_current_user)):
 async def api_delete_project(name: str, user: User = Depends(get_current_user)):
     try:
         project = project_manager.get_project(name)
-        if user.role != UserRole.ADMIN and project.get("owner") != user.email:
+        if user.role != UserRole.ADMIN and not settings.LOGIN_DISABLED and project.get("owner") != user.email:
             raise HTTPException(403, "본인의 프로젝트만 삭제할 수 있습니다.")
         project_manager.delete_project(name)
     except ValueError as e:
