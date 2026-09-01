@@ -58,6 +58,19 @@ def _validate_filename(filename: str) -> str:
     return filename
 
 
+def _sanitize_asset_filename(original: str) -> str:
+    """Uploaded filenames are real-world (screenshots, phone photos): spaces,
+    Korean text, parentheses — all rejected by FILENAME_RE, which is meant
+    for internal slideNN-*.html names, not user file uploads. An upload
+    always creates a brand-new file, so sanitize instead of rejecting:
+    strip to a basename, drop anything unsafe, keep the extension."""
+    base = os.path.basename((original or "").strip()) or "upload"
+    stem, ext = os.path.splitext(base)
+    stem = re.sub(r'[^A-Za-z0-9_-]+', '-', stem).strip('-') or "asset"
+    ext = re.sub(r'[^A-Za-z0-9.]', '', ext)[:10]
+    return f"{stem}{ext}"
+
+
 def _validate_asset_filename(filename: str) -> str:
     if not filename or filename.startswith("/") or ".." in filename or "\\" in filename:
         raise ValueError(f"올바르지 않은 파일명입니다: {filename}")
@@ -343,10 +356,18 @@ class ProjectManager:
             return new_order
 
     def save_asset(self, name: str, filename: str, data: bytes, version: str = "v1.0") -> str:
-        safe_name = _validate_asset_filename(filename)
+        safe_name = _sanitize_asset_filename(filename)
         assets_dir = self._version_dir(name, version) / "assets"
         assets_dir.mkdir(parents=True, exist_ok=True)
-        (assets_dir / safe_name).write_bytes(data)
+        target = assets_dir / safe_name
+        if target.exists():
+            # Different uploads can sanitize to the same name (e.g. two
+            # "스크린샷....png" screenshots) — don't silently clobber the
+            # earlier one.
+            stem, ext = os.path.splitext(safe_name)
+            safe_name = f"{stem}-{int(datetime.now().timestamp() * 1000)}{ext}"
+            target = assets_dir / safe_name
+        target.write_bytes(data)
         return safe_name
 
     def build_pptx(self, name: str, version: str = "v1.0") -> str:
