@@ -23,6 +23,31 @@
 .progress-area .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--rh-red); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .progress-area .msg { color: var(--text-muted); font-size: 14px; }
+
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+.theme-card {
+  position: relative; border: 2px solid var(--border); border-radius: 8px; overflow: hidden;
+  cursor: pointer; background: var(--surface-card); transition: border-color .15s, box-shadow .15s;
+}
+.theme-card:hover { border-color: var(--border-strong); }
+.theme-card.selected { border-color: var(--rh-red); box-shadow: 0 0 0 1px var(--rh-red); }
+.theme-card-slide {
+  aspect-ratio: 16 / 9; display: flex; flex-direction: column; justify-content: center;
+  padding: 12px 14px; gap: 4px;
+}
+.theme-card-eyebrow { width: 24px; height: 4px; border-radius: 2px; margin-bottom: 2px; }
+.theme-card-title { font-size: 14px; font-weight: 800; line-height: 1.25; word-break: keep-all; }
+.theme-card-sub { font-size: 8.5px; }
+.theme-card-label {
+  padding: 7px 10px; font-size: 12px; font-weight: 600; color: var(--text);
+  background: var(--surface-card); border-top: 1px solid var(--border);
+}
+.theme-card-check {
+  display: none; position: absolute; top: 8px; right: 8px; width: 20px; height: 20px;
+  border-radius: 50%; background: var(--rh-red); color: #fff; align-items: center;
+  justify-content: center; font-size: 12px; z-index: 2;
+}
+.theme-card.selected .theme-card-check { display: flex; }
 </style>
 </head>
 <body>
@@ -67,24 +92,23 @@
           <textarea id="description" placeholder="슬라이드에서 다루고 싶은 내용을 자세히 설명해주세요..."></textarea>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label for="numSlides">슬라이드 수</label>
-            <select id="numSlides">
-              <option value="6">6장</option>
-              <option value="8" selected>8장</option>
-              <option value="10">10장</option>
-              <option value="12">12장</option>
-              <option value="14">14장</option>
-              <option value="16">16장</option>
-              <option value="18">18장</option>
-              <option value="20">20장</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="theme">테마</label>
-            <select id="theme"></select>
-          </div>
+        <div class="form-group">
+          <label for="numSlides">슬라이드 수</label>
+          <select id="numSlides">
+            <option value="6">6장</option>
+            <option value="8" selected>8장</option>
+            <option value="10">10장</option>
+            <option value="12">12장</option>
+            <option value="14">14장</option>
+            <option value="16">16장</option>
+            <option value="18">18장</option>
+            <option value="20">20장</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>테마 선택</label>
+          <div id="themeGrid" class="theme-grid"></div>
         </div>
 
         <div id="errorBox" class="error-box" style="display:none"></div>
@@ -141,19 +165,51 @@ document.getElementById('title').addEventListener('input', function() {
 });
 document.getElementById('name').addEventListener('input', function() { this.dataset.manual = '1'; });
 
-// Load themes
+// Load themes as visual sample-title-slide cards (colors pulled from each
+// theme's actual palette / theme.css, not a generic swatch).
+const THEME_PREVIEWS = {
+  'academic-paper':     { bg: '#f7f5f0', text: '#1a1814', sub: '#4a4640', accent: '#6d4cff', font: '"Pretendard","Noto Sans KR",sans-serif' },
+  'editorial-dark':     { bg: '#111111', text: '#f5f5f5', sub: '#b8b8b8', accent: '#8a4a4d', font: '"Pretendard","Noto Sans KR",sans-serif' },
+  'modern-minimal':     { bg: '#ffffff', text: '#0a0a0a', sub: '#a3a3a3', accent: '#0066ff', font: '"Pretendard","Noto Sans KR",sans-serif' },
+  'neon-terminal':      { bg: '#0a0e0f', text: '#00ff88', sub: '#5a7a5a', accent: '#00ff88', font: '"JetBrains Mono",monospace' },
+  'paper-press':        { bg: '#f6f1e7', text: '#141210', sub: '#4d463c', accent: '#c43a1d', font: '"Pretendard","Noto Sans KR",serif' },
+  'redhat-enterprise':  { bg: '#ffffff', text: '#151515', sub: '#4d4d4d', accent: '#ee0000', font: '"Noto Sans KR",sans-serif' },
+  'redhat-modern-dark': { bg: '#151515', text: '#ffffff', sub: '#a3a3a3', accent: '#ee0000', font: '"Noto Sans KR",sans-serif' },
+  'redhat-workshop':    { bg: '#f2f2f2', text: '#151515', sub: '#4d4d4d', accent: '#ee0000', font: '"JetBrains Mono","Noto Sans KR",monospace' },
+};
+const DEFAULT_PREVIEW = THEME_PREVIEWS['redhat-enterprise'];
+let selectedTheme = 'redhat-enterprise';
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 async function loadThemes() {
   const res = await fetch('/api/themes');
   if (!res.ok) return;
   const themes = await res.json();
-  const sel = document.getElementById('theme');
-  sel.innerHTML = '';
-  themes.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t.id;
-    opt.textContent = t.name;
-    if (t.id === 'redhat-enterprise') opt.selected = true;
-    sel.appendChild(opt);
+  if (!themes.some(t => t.id === selectedTheme) && themes.length) selectedTheme = themes[0].id;
+
+  const grid = document.getElementById('themeGrid');
+  grid.innerHTML = themes.map(t => {
+    const p = THEME_PREVIEWS[t.id] || DEFAULT_PREVIEW;
+    const name = escapeHtml(t.name);
+    return '<div class="theme-card' + (t.id === selectedTheme ? ' selected' : '') + '" data-theme="' + t.id + '">' +
+      '<div class="theme-card-check">✓</div>' +
+      '<div class="theme-card-slide" style="background:' + p.bg + '; font-family:' + p.font + '">' +
+        '<div class="theme-card-eyebrow" style="background:' + p.accent + '"></div>' +
+        '<div class="theme-card-title" style="color:' + p.text + '">' + name + '</div>' +
+        '<div class="theme-card-sub" style="color:' + p.sub + '">샘플 타이틀 슬라이드</div>' +
+      '</div>' +
+      '<div class="theme-card-label">' + name + '</div>' +
+    '</div>';
+  }).join('');
+
+  grid.querySelectorAll('.theme-card').forEach(card => {
+    card.addEventListener('click', () => {
+      selectedTheme = card.dataset.theme;
+      grid.querySelectorAll('.theme-card').forEach(c => c.classList.toggle('selected', c === card));
+    });
   });
 }
 
@@ -192,7 +248,7 @@ document.getElementById('createForm').addEventListener('submit', async e => {
   const title = document.getElementById('title').value.trim();
   const description = document.getElementById('description').value.trim();
   const numSlides = parseInt(document.getElementById('numSlides').value);
-  const theme = document.getElementById('theme').value;
+  const theme = selectedTheme;
 
   if (!title) { errorBox.textContent = '제목을 입력하세요.'; errorBox.style.display = 'block'; return; }
   if (!name) name = 'project-' + Date.now().toString(36);

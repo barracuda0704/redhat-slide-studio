@@ -315,6 +315,11 @@ render();
         p = self.projects_dir / name / version / "assets" / filename
         return str(p) if p.exists() else None
 
+    # Not selectable visual themes: shared typography rules inherited by every
+    # redhat-* theme, and an unrelated Web UI design spec that happens to live
+    # in the same folder — both say so explicitly in their own doc bodies.
+    NON_THEME_DOCS = {"korean-typography", "visual-language"}
+
     def list_themes(self) -> list[dict]:
         themes_dir = self.engine_dir / "themes"
         results = []
@@ -322,6 +327,8 @@ render();
             return results
         for f in sorted(themes_dir.glob("*.md")):
             name = f.stem
+            if name in self.NON_THEME_DOCS:
+                continue
             text = f.read_text("utf-8")
             m = re.search(r'^#\s+(?:Theme:\s*)?(.+)', text, re.MULTILINE)
             label = m.group(1).strip() if m else name
