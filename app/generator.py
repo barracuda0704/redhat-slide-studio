@@ -155,10 +155,15 @@ def generate_content(topic: str, num_slides: int = 8, description: str = "") -> 
         system=_content_system(_today_kr()),
         messages=[{"role": "user", "content": user_msg}],
     )
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError(
+            f"content.md 생성이 출력 길이 제한({settings.MAX_OUTPUT_TOKENS} 토큰)에 걸려 중간에 잘렸습니다. "
+            f"슬라이드 수를 줄이거나 다시 시도하세요."
+        )
     return response.content[0].text
 
 
-def generate_slides_html(content_md: str, theme: str = "redhat-enterprise") -> list[dict]:
+def generate_slides_html(content_md: str, theme: str = "redhat-enterprise") -> tuple[list[dict], bool]:
     engine_dir = settings.ENGINE_DIR
     theme_css = _load_theme_css(engine_dir)
     icon_list = _load_icon_list(engine_dir)
@@ -174,7 +179,9 @@ def generate_slides_html(content_md: str, theme: str = "redhat-enterprise") -> l
         messages=[{"role": "user", "content": f"다음 content.md를 기반으로 각 슬라이드의 HTML을 작성하세요:\n\n{content_md}"}],
     )
     text = response.content[0].text
-    return _parse_slides(text)
+    slides = _parse_slides(text)
+    truncated = response.stop_reason == "max_tokens"
+    return slides, truncated
 
 
 def _parse_slides(text: str) -> list[dict]:

@@ -307,13 +307,20 @@ def _run_generation(name: str, topic: str, description: str, num_slides: int, th
     try:
         content = generator.generate_content(topic, num_slides, description)
         project_manager.save_content(name, content)
-        slides = generator.generate_slides_html(content, theme)
+        slides, truncated = generator.generate_slides_html(content, theme)
         for s in slides:
             project_manager.save_slide_html(name, s["filename"], s["html"])
         meta = project_manager._load_meta(name)
         if meta:
             meta["status"] = "completed"
             meta["slides"] = len(slides)
+            if truncated:
+                meta["generation_warning"] = (
+                    f"AI 응답이 출력 길이 제한에 걸려 요청한 {num_slides}장 중 {len(slides)}장만 "
+                    f"생성되었습니다. 슬라이드 수를 줄여 다시 생성하거나, 나머지는 직접 추가하세요."
+                )
+            else:
+                meta.pop("generation_warning", None)
             project_manager._save_meta(name, meta)
     except Exception as e:
         meta = project_manager._load_meta(name)

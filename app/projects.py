@@ -12,6 +12,39 @@ from pathlib import Path
 REDHAT_REL_RE = re.compile(r'(href|src)="\.\./\.\./\.\./\.\./redhat/([^"]+)"')
 ASSET_REL_RE = re.compile(r'src="assets/([^"]+)"')
 
+# Project/version/filename come straight from URL path params — never trust
+# them as path components without validation (e.g. name="..") reaches
+# shutil.rmtree(projects_dir / "..") == delete the whole engine dir).
+NAME_RE = re.compile(r'^[a-z0-9]+(-[a-z0-9]+)*$')
+VERSION_RE = re.compile(r'^v\d+\.\d+$')
+FILENAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+
+
+def _validate_name(name: str) -> str:
+    if not name or not NAME_RE.match(name):
+        raise ValueError(f"올바르지 않은 프로젝트 이름입니다: {name}")
+    return name
+
+
+def _validate_version(version: str) -> str:
+    if not version or not VERSION_RE.match(version):
+        raise ValueError(f"올바르지 않은 버전입니다: {version}")
+    return version
+
+
+def _validate_filename(filename: str) -> str:
+    if not filename or not FILENAME_RE.match(filename):
+        raise ValueError(f"올바르지 않은 파일명입니다: {filename}")
+    return filename
+
+
+def _validate_asset_filename(filename: str) -> str:
+    if not filename or filename.startswith("/") or ".." in filename or "\\" in filename:
+        raise ValueError(f"올바르지 않은 파일명입니다: {filename}")
+    for part in filename.split("/"):
+        _validate_filename(part)
+    return filename
+
 
 class ProjectManager:
     def __init__(self, engine_dir: str):
@@ -19,8 +52,14 @@ class ProjectManager:
         self.projects_dir = self.engine_dir / "projects"
         self.projects_dir.mkdir(parents=True, exist_ok=True)
 
+    def _project_dir(self, name: str) -> Path:
+        return self.projects_dir / _validate_name(name)
+
+    def _version_dir(self, name: str, version: str = "v1.0") -> Path:
+        return self._project_dir(name) / _validate_version(version)
+
     def _meta_path(self, name: str, version: str = "v1.0") -> Path:
-        return self.projects_dir / name / version / "project.json"
+        return self._version_dir(name, version) / "project.json"
 
     def _load_meta(self, name: str, version: str = "v1.0") -> dict | None:
         p = self._meta_path(name, version)
@@ -36,8 +75,8 @@ class ProjectManager:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def create_project(self, name: str, title: str, owner_email: str, theme: str = "redhat-enterprise", description: str = "", num_slides: int = 8) -> dict:
-        slug = name.strip().lower().replace(" ", "-")
-        version_dir = self.projects_dir / slug / "v1.0"
+        slug = _validate_name(name.strip().lower().replace(" ", "-"))
+        version_dir = self._version_dir(slug)
         if version_dir.exists():
             raise ValueError(f"프로젝트 '{slug}'가 이미 존재합니다.")
         version_dir.mkdir(parents=True)
@@ -66,7 +105,10 @@ class ProjectManager:
         for d in sorted(self.projects_dir.iterdir()):
             if not d.is_dir() or d.name.startswith("."):
                 continue
-            meta = self._load_meta(d.name)
+            try:
+                meta = self._load_meta(d.name)
+            except ValueError:
+                continue  # directory name doesn't match the slug format — skip, don't 500 the whole list
             if not meta:
                 continue
             if owner_email and meta.get("owner") != owner_email:
@@ -92,26 +134,26 @@ class ProjectManager:
         meta = self._load_meta(name, version)
         if not meta:
             raise ValueError(f"프로젝트 '{name}'을 찾을 수 없습니다.")
-        html_dir = self.projects_dir / name / version / "html"
+        html_dir = self._version_dir(name, version) / "html"
         slides = sorted([f.name for f in html_dir.glob("slide*.html")]) if html_dir.exists() else []
-        has_pptx = (self.projects_dir / name / version / "slides.pptx").exists()
+        has_pptx = (self._version_dir(name, version) / "slides.pptx").exists()
         return {**meta, "name": name, "version": version, "slides": slides, "has_pptx": has_pptx}
 
     def delete_project(self, name: str) -> bool:
-        project_dir = self.projects_dir / name
+        project_dir = self._project_dir(name)
         if not project_dir.exists():
             raise ValueError(f"프로젝트 '{name}'을 찾을 수 없습니다.")
         shutil.rmtree(project_dir)
         return True
 
     def get_content(self, name: str, version: str = "v1.0") -> str:
-        p = self.projects_dir / name / version / "content.md"
+        p = self._version_dir(name, version) / "content.md"
         if not p.exists():
             raise ValueError(f"content.md를 찾을 수 없습니다.")
         return p.read_text("utf-8")
 
     def save_content(self, name: str, content: str, version: str = "v1.0"):
-        p = self.projects_dir / name / version / "content.md"
+        p = self._version_dir(name, version) / "content.md"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, "utf-8")
         meta = self._load_meta(name, version)
@@ -120,9 +162,9 @@ class ProjectManager:
             self._save_meta(name, meta, version)
 
     def save_slide_html(self, name: str, filename: str, html: str, version: str = "v1.0"):
-        html_dir = self.projects_dir / name / version / "html"
+        html_dir = self._version_dir(name, version) / "html"
         html_dir.mkdir(parents=True, exist_ok=True)
-        (html_dir / filename).write_text(html, "utf-8")
+        (html_dir / _validate_filename(filename)).write_text(html, "utf-8")
         meta = self._load_meta(name, version)
         if meta:
             meta["updated"] = self._now_iso()
@@ -130,18 +172,20 @@ class ProjectManager:
             self._save_meta(name, meta, version)
 
     def get_slide_html(self, name: str, filename: str, version: str = "v1.0") -> str:
-        p = self.projects_dir / name / version / "html" / filename
+        p = self._version_dir(name, version) / "html" / _validate_filename(filename)
         if not p.exists():
             raise ValueError(f"슬라이드 '{filename}'을 찾을 수 없습니다.")
         return p.read_text("utf-8")
 
     def list_slides(self, name: str, version: str = "v1.0") -> list[str]:
-        html_dir = self.projects_dir / name / version / "html"
+        html_dir = self._version_dir(name, version) / "html"
         if not html_dir.exists():
             return []
         return sorted([f.name for f in html_dir.glob("slide*.html")])
 
     def build_pptx(self, name: str, version: str = "v1.0") -> str:
+        _validate_name(name)
+        _validate_version(version)
         meta = self._load_meta(name, version)
         if meta:
             meta["status"] = "building"
@@ -153,7 +197,7 @@ class ProjectManager:
                 capture_output=True, text=True, timeout=120
             )
             output = f"{result.stdout or ''}\n{result.stderr or ''}"
-            pptx_path = self.projects_dir / name / version / "slides.pptx"
+            pptx_path = self._version_dir(name, version) / "slides.pptx"
 
             if result.returncode != 0 or not pptx_path.exists():
                 if meta:
@@ -196,11 +240,13 @@ class ProjectManager:
             raise RuntimeError("빌드 타임아웃 (120초)")
 
     def get_pptx_path(self, name: str, version: str = "v1.0") -> str | None:
-        p = self.projects_dir / name / version / "slides.pptx"
+        p = self._version_dir(name, version) / "slides.pptx"
         return str(p) if p.exists() else None
 
     def export_pdf(self, name: str, version: str = "v1.0") -> str:
-        html_dir = self.projects_dir / name / version / "html"
+        _validate_name(name)
+        _validate_version(version)
+        html_dir = self._version_dir(name, version) / "html"
         if not html_dir.exists():
             raise ValueError(f"프로젝트 '{name}'을 찾을 수 없습니다.")
 
@@ -216,12 +262,12 @@ class ProjectManager:
 
             from PIL import Image
             images = [Image.open(p).convert("RGB") for p in png_files]
-            pdf_path = self.projects_dir / name / version / "slides.pdf"
+            pdf_path = self._version_dir(name, version) / "slides.pdf"
             images[0].save(pdf_path, save_all=True, append_images=images[1:])
         return str(pdf_path)
 
     def get_pdf_path(self, name: str, version: str = "v1.0") -> str | None:
-        p = self.projects_dir / name / version / "slides.pdf"
+        p = self._version_dir(name, version) / "slides.pdf"
         return str(p) if p.exists() else None
 
     def _file_to_data_uri(self, path: Path) -> str:
@@ -244,8 +290,8 @@ class ProjectManager:
         return html
 
     def export_html(self, name: str, version: str = "v1.0") -> str:
-        html_dir = self.projects_dir / name / version / "html"
-        assets_dir = self.projects_dir / name / version / "assets"
+        html_dir = self._version_dir(name, version) / "html"
+        assets_dir = self._version_dir(name, version) / "assets"
         if not html_dir.exists():
             raise ValueError(f"프로젝트 '{name}'을 찾을 수 없습니다.")
         files = sorted(html_dir.glob("slide*.html"))
@@ -312,7 +358,7 @@ render();
 </html>"""
 
     def get_asset_path(self, name: str, filename: str, version: str = "v1.0") -> str | None:
-        p = self.projects_dir / name / version / "assets" / filename
+        p = self._version_dir(name, version) / "assets" / _validate_asset_filename(filename)
         return str(p) if p.exists() else None
 
     # Not selectable visual themes: shared typography rules inherited by every

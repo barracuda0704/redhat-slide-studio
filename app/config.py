@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     VERTEX_REGION: str = "us-east5"
     ANTHROPIC_API_KEY: str = ""
     MODEL_NAME: str = "claude-opus-4-6"
-    MAX_OUTPUT_TOKENS: int = 16384
+    MAX_OUTPUT_TOKENS: int = 32000
 
     ADMIN_EMAIL: str = "barracuda0704@gmail.com"
     ADMIN_INITIAL_PASSWORD: str = "***REMOVED***"

@@ -278,8 +278,9 @@ async function loadProject() {
   document.getElementById('exportPdfBtn').disabled = !hasSlides;
 
   const warningEl = document.getElementById('buildWarning');
-  if (project.build_warning) {
-    warningEl.textContent = project.build_warning;
+  const warningText = project.build_warning || project.generation_warning;
+  if (warningText) {
+    warningEl.textContent = warningText;
     warningEl.style.display = 'block';
   } else {
     warningEl.style.display = 'none';
