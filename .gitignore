@@ -5,6 +5,7 @@ data/*.json
 node_modules/
 *.pptx
 engine/projects/
+data/projects/
 .DS_Store
 *.egg-info/
 dist/

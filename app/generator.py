@@ -93,6 +93,20 @@ def _build_slide_system(theme_css: str, icon_list: str, theme_guide: str) -> str
 9. 콘텐츠 슬라이드: 카드 그리드, 리스트, 스택 등 다양한 레이아웃
 10. 각 카드/항목에 아이콘을 적극 활용
 
+## PPTX 변환 필수 규칙 (위반하면 해당 슬라이드가 PPTX 빌드에서 통째로 누락됩니다)
+이 HTML은 headless 브라우저로 렌더링된 후 DOM을 분석해 PPTX 도형/텍스트박스로 변환됩니다.
+아래 두 규칙을 슬라이드 전체에서 예외 없이 지키세요.
+
+1. **모든 글자는 반드시 `<p>`, `<h1>~<h6>`, `<ul>`, `<ol>` 태그 안에만 있어야 합니다.**
+   `<div>`, `<span>` 바로 밑에 텍스트를 직접 두면 안 됩니다 (뱃지, 라벨, 숫자, 코드 한 줄짜리도 예외 없음).
+   - 잘못된 예: `<div class="badge">NEW</div>`, `<div class="stat-num">44.8%</div>`
+   - 올바른 예: `<div class="badge"><p>NEW</p></div>`, `<div class="stat-num"><p>44.8%</p></div>`
+2. **`<h1>`, `<h2>`, `<h3>`, `<h4>`, `<h5>`, `<h6>`, `<p>`, `<ul>`, `<ol>`, `<li>` 태그 자체에는 background, border, box-shadow 스타일을 어떤 경우에도 직접 적용하지 마세요.**
+   제목 밑에 빨간 밑줄 같은 강조선을 넣고 싶을 때도 예외 없이 감싸는 `<div>`에 border를 적용하세요.
+   - 잘못된 예: `<h1 style="border-bottom:2pt solid red;">제목</h1>`, `<h2 class="underline">제목</h2>` (underline 클래스가 border-bottom을 h2에 직접 줌)
+   - 올바른 예: `<div style="border-bottom:2pt solid red; padding-bottom:6pt;"><h2>제목</h2></div>`
+3. `<div>`에 `background-image`나 `linear-gradient`/`radial-gradient`를 쓰지 마세요 (단색 `background-color`만 가능). 이미지는 `<img>` 태그로 배치하세요.
+
 ## 출력 형식
 각 슬라이드를 다음 형식으로 출력하세요:
 

@@ -1,10 +1,16 @@
 import re
 import json
 import os
+import base64
+import mimetypes
 import shutil
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+REDHAT_REL_RE = re.compile(r'(href|src)="\.\./\.\./\.\./\.\./redhat/([^"]+)"')
+ASSET_REL_RE = re.compile(r'src="assets/([^"]+)"')
 
 
 class ProjectManager:
@@ -146,15 +152,41 @@ class ProjectManager:
                 cwd=str(self.engine_dir),
                 capture_output=True, text=True, timeout=120
             )
+            output = f"{result.stdout or ''}\n{result.stderr or ''}"
             pptx_path = self.projects_dir / name / version / "slides.pptx"
+
             if result.returncode != 0 or not pptx_path.exists():
                 if meta:
                     meta["status"] = "failed"
+                    meta.pop("build_warning", None)
                     self._save_meta(name, meta, version)
                 raise RuntimeError(f"빌드 실패: {result.stderr or result.stdout}")
+
+            # build.js swallows per-slide conversion errors and always exits 0,
+            # so a "successful" run can still produce a PPTX with zero slides —
+            # parse its own summary line to catch that instead of trusting returncode.
+            m = re.search(r"Build complete: (\d+) success, (\d+) errors", output)
+            success_count = int(m.group(1)) if m else None
+            error_count = int(m.group(2)) if m else 0
+
+            if success_count == 0:
+                if meta:
+                    meta["status"] = "failed"
+                    self._save_meta(name, meta, version)
+                raise RuntimeError(f"빌드 실패: 모든 슬라이드가 PPTX 변환 규칙을 위반해 누락되었습니다.\n{output.strip()[-3000:]}")
+
             if meta:
                 meta["status"] = "completed"
                 meta["updated"] = self._now_iso()
+                if error_count:
+                    meta["build_warning"] = (
+                        f"{error_count}개 슬라이드가 PPTX 변환에 실패해 누락되었습니다 "
+                        f"(성공 {success_count} / 실패 {error_count}). HTML 편집기에서 텍스트가 "
+                        f"<p>/<h1>~<h6>/<ul>/<ol> 태그로 감싸져 있는지, 텍스트 태그에 배경·테두리가 "
+                        f"적용되어 있지 않은지 확인하세요."
+                    )
+                else:
+                    meta.pop("build_warning", None)
                 self._save_meta(name, meta, version)
             return str(pptx_path)
         except subprocess.TimeoutExpired:
@@ -166,6 +198,118 @@ class ProjectManager:
     def get_pptx_path(self, name: str, version: str = "v1.0") -> str | None:
         p = self.projects_dir / name / version / "slides.pptx"
         return str(p) if p.exists() else None
+
+    def export_pdf(self, name: str, version: str = "v1.0") -> str:
+        html_dir = self.projects_dir / name / version / "html"
+        if not html_dir.exists():
+            raise ValueError(f"프로젝트 '{name}'을 찾을 수 없습니다.")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                ["node", str(self.engine_dir / "scripts" / "export-slides-png.js"), name, version, tmp],
+                cwd=str(self.engine_dir),
+                capture_output=True, text=True, timeout=180,
+            )
+            png_files = sorted(Path(tmp).glob("*.png"))
+            if result.returncode != 0 or not png_files:
+                raise RuntimeError(f"PDF 생성 실패: {result.stderr or result.stdout}")
+
+            from PIL import Image
+            images = [Image.open(p).convert("RGB") for p in png_files]
+            pdf_path = self.projects_dir / name / version / "slides.pdf"
+            images[0].save(pdf_path, save_all=True, append_images=images[1:])
+        return str(pdf_path)
+
+    def get_pdf_path(self, name: str, version: str = "v1.0") -> str | None:
+        p = self.projects_dir / name / version / "slides.pdf"
+        return str(p) if p.exists() else None
+
+    def _file_to_data_uri(self, path: Path) -> str:
+        mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime};base64,{data}"
+
+    def _inline_slide_assets(self, html: str, assets_dir: Path) -> str:
+        def repl_redhat(m):
+            attr, rel = m.group(1), m.group(2)
+            p = self.engine_dir / "redhat" / rel
+            return f'{attr}="{self._file_to_data_uri(p)}"' if p.exists() else m.group(0)
+
+        def repl_asset(m):
+            p = assets_dir / m.group(1)
+            return f'src="{self._file_to_data_uri(p)}"' if p.exists() else m.group(0)
+
+        html = REDHAT_REL_RE.sub(repl_redhat, html)
+        html = ASSET_REL_RE.sub(repl_asset, html)
+        return html
+
+    def export_html(self, name: str, version: str = "v1.0") -> str:
+        html_dir = self.projects_dir / name / version / "html"
+        assets_dir = self.projects_dir / name / version / "assets"
+        if not html_dir.exists():
+            raise ValueError(f"프로젝트 '{name}'을 찾을 수 없습니다.")
+        files = sorted(html_dir.glob("slide*.html"))
+        if not files:
+            raise ValueError("슬라이드가 없습니다.")
+
+        slide_htmls = [self._inline_slide_assets(f.read_text("utf-8"), assets_dir) for f in files]
+        meta = self._load_meta(name, version) or {}
+        return self._build_standalone_player(slide_htmls, meta.get("title", name))
+
+    def _build_standalone_player(self, slide_htmls: list[str], title: str) -> str:
+        slides_json = json.dumps(slide_htmls)
+        title_html = title.replace("<", "&lt;").replace(">", "&gt;")
+        return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>{title_html}</title>
+<style>
+  html, body {{ margin:0; padding:0; height:100%; background:#151515; overflow:hidden; }}
+  #stage {{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }}
+  #frame {{ width:960px; height:540px; border:none; background:#fff; box-shadow:0 8px 40px rgba(0,0,0,.5); }}
+  #counter {{ position:fixed; bottom:16px; right:20px; color:#9aa0a6; font:12px -apple-system,sans-serif; z-index:10; }}
+  .zone {{ position:fixed; top:0; bottom:0; width:20%; cursor:pointer; z-index:5; }}
+  #zone-prev {{ left:0; }}
+  #zone-next {{ right:0; }}
+</style>
+</head>
+<body>
+<div id="stage"><iframe id="frame" scrolling="no"></iframe></div>
+<div class="zone" id="zone-prev"></div>
+<div class="zone" id="zone-next"></div>
+<div id="counter"></div>
+<script>
+const SLIDES = {slides_json};
+let idx = 0;
+const frame = document.getElementById('frame');
+const counter = document.getElementById('counter');
+function render() {{
+  frame.srcdoc = SLIDES[idx];
+  counter.textContent = (idx + 1) + ' / ' + SLIDES.length;
+  fit();
+}}
+function fit() {{
+  const scale = Math.min(window.innerWidth / 960, window.innerHeight / 540) * 0.92;
+  frame.style.transform = 'scale(' + scale + ')';
+}}
+function go(delta) {{
+  idx = Math.max(0, Math.min(SLIDES.length - 1, idx + delta));
+  render();
+}}
+document.getElementById('zone-prev').onclick = () => go(-1);
+document.getElementById('zone-next').onclick = () => go(1);
+window.addEventListener('keydown', (e) => {{
+  if (e.key === 'ArrowRight' || e.key === ' ') go(1);
+  else if (e.key === 'ArrowLeft') go(-1);
+  else if (e.key === 'Home') {{ idx = 0; render(); }}
+  else if (e.key === 'End') {{ idx = SLIDES.length - 1; render(); }}
+}});
+window.addEventListener('resize', fit);
+render();
+</script>
+</body>
+</html>"""
 
     def get_asset_path(self, name: str, filename: str, version: str = "v1.0") -> str | None:
         p = self.projects_dir / name / version / "assets" / filename

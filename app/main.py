@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -388,6 +389,39 @@ async def api_download(name: str, _: User = Depends(get_current_user)):
     project = project_manager.get_project(name)
     dl_name = f"{project.get('title', name)}.pptx"
     return FileResponse(pptx_path, filename=dl_name, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+
+@app.get("/api/projects/{name}/export/html")
+async def api_export_html(name: str, _: User = Depends(get_current_user)):
+    try:
+        html = project_manager.export_html(name)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    project = project_manager.get_project(name)
+    dl_name = f"{project.get('title', name)}.html"
+    return Response(
+        html, media_type="text/html",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(dl_name)}"},
+    )
+
+
+@app.post("/api/projects/{name}/export/pdf")
+async def api_export_pdf(name: str, _: User = Depends(get_current_user)):
+    try:
+        pdf_path = await asyncio.to_thread(project_manager.export_pdf, name)
+        return {"status": "completed", "path": pdf_path}
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/projects/{name}/export/pdf/download")
+async def api_export_pdf_download(name: str, _: User = Depends(get_current_user)):
+    pdf_path = project_manager.get_pdf_path(name)
+    if not pdf_path:
+        raise HTTPException(404, "PDF 파일이 없습니다. 먼저 생성하세요.")
+    project = project_manager.get_project(name)
+    dl_name = f"{project.get('title', name)}.pdf"
+    return FileResponse(pdf_path, filename=dl_name, media_type="application/pdf")
 
 
 # ── Assets API ──

@@ -147,8 +147,18 @@ main.content { flex: 1; min-height: 0; display: flex; }
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
           다운로드
         </button>
+        <button class="btn" id="exportHtmlBtn" onclick="exportHtml()" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
+          HTML 내보내기
+        </button>
+        <button class="btn" id="exportPdfBtn" onclick="exportPdf()" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+          PDF 내보내기
+        </button>
         <button class="btn btn-danger" onclick="deleteProject()">삭제</button>
       </div>
+
+      <div class="warning-box" id="buildWarning" style="display:none; margin:0;"></div>
 
       <!-- Tabs -->
       <div class="tab-bar">
@@ -261,8 +271,19 @@ async function loadProject() {
   document.title = project.title + ' - Slide Studio';
   updateStatusBadge(project.status);
 
-  document.getElementById('buildBtn').disabled = !project.slides || project.slides.length === 0;
+  const hasSlides = !!(project.slides && project.slides.length > 0);
+  document.getElementById('buildBtn').disabled = !hasSlides;
   document.getElementById('downloadBtn').disabled = !project.has_pptx;
+  document.getElementById('exportHtmlBtn').disabled = !hasSlides;
+  document.getElementById('exportPdfBtn').disabled = !hasSlides;
+
+  const warningEl = document.getElementById('buildWarning');
+  if (project.build_warning) {
+    warningEl.textContent = project.build_warning;
+    warningEl.style.display = 'block';
+  } else {
+    warningEl.style.display = 'none';
+  }
 
   const slides = project.slides || [];
   document.getElementById('slideCount').textContent = slides.length + '장';
@@ -403,6 +424,7 @@ async function buildPptx() {
       showToast('빌드 실패: ' + (data.detail || ''), true);
       updateStatusBadge('failed');
     }
+    await loadProject();
   } catch(e) {
     showToast('빌드 오류: ' + e.message, true);
     updateStatusBadge('failed');
@@ -413,6 +435,31 @@ async function buildPptx() {
 
 function downloadPptx() {
   window.open('/api/projects/' + projectName + '/download', '_blank');
+}
+
+function exportHtml() {
+  window.open('/api/projects/' + projectName + '/export/html', '_blank');
+}
+
+async function exportPdf() {
+  const btn = document.getElementById('exportPdfBtn');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = 'PDF 생성 중...';
+  try {
+    const res = await fetch('/api/projects/' + projectName + '/export/pdf', {method:'POST'});
+    const data = await res.json();
+    if (res.ok) {
+      showToast('PDF 생성 완료!');
+      window.open('/api/projects/' + projectName + '/export/pdf/download', '_blank');
+    } else {
+      showToast('PDF 생성 실패: ' + (data.detail || ''), true);
+    }
+  } catch(e) {
+    showToast('PDF 생성 오류: ' + e.message, true);
+  }
+  btn.disabled = false;
+  btn.innerHTML = original;
 }
 
 async function deleteProject() {
