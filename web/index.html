@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slide Studio</title>
+<style>html{background:#151515}</style>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="masthead">
+  <div class="masthead-brand">
+    <a href="/" class="masthead-home-link">
+      <span class="rh-mark"></span>
+      <span class="masthead-title">Slide Studio</span>
+    </a>
+    <span class="masthead-context">Slide Studio</span>
+  </div>
+  <nav class="masthead-nav">
+    <a href="/" class="masthead-nav-link active">대시보드</a>
+  </nav>
+  <div class="nav-user" id="navUser"></div>
+</div>
+
+<div class="page-hero">
+  <div class="page-eyebrow">Slide Studio</div>
+  <h1>프레젠테이션 대시보드</h1>
+  <div class="page-subheading">프레젠테이션을 생성하고 관리하세요.</div>
+</div>
+
+  <main class="content">
+    <div class="content-inner">
+      <div class="card">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px">
+          <h2 style="margin:0">내 프레젠테이션</h2>
+          <button class="btn btn-primary" id="newProjectBtn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            새 프레젠테이션 만들기
+          </button>
+        </div>
+        <div class="empty" id="emptyState">
+          <p style="color:var(--text-muted); font-size:14px; margin:32px 0;">아직 생성된 프레젠테이션이 없습니다.</p>
+          <p style="color:var(--text-muted); font-size:13px;">프레젠테이션 생성 기능은 곧 추가됩니다.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+<script>
+const ICON_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>';
+const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h4"/><path d="M15 16l4-4-4-4"/><path d="M19 12H9"/></svg>';
+
+function navUserHTML(me) {
+  return '<span class="avatar">' + me.email.charAt(0).toUpperCase() + '</span>' +
+    '<span class="email">' + me.email + '</span>' +
+    (me.role === 'admin' ? '<a href="/admin" title="관리자 페이지">' + ICON_SHIELD + '관리자</a>' : '') +
+    '<a href="#" onclick="logout(); return false;" title="로그아웃">' + ICON_LOGOUT + '로그아웃</a>';
+}
+
+async function loadNavUser() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) { window.location.href = '/login'; return; }
+    const me = await res.json();
+    document.getElementById('navUser').innerHTML = navUserHTML(me);
+  } catch (e) { window.location.href = '/login'; }
+}
+
+async function logout() {
+  await fetch('/api/logout', { method: 'POST' });
+  window.location.href = '/login';
+}
+
+loadNavUser();
+</script>
+
+</body>
+</html>

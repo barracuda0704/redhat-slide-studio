@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>로그인 - Slide Studio</title>
+<style>html{background:#151515}</style>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="masthead">
+  <div class="masthead-brand">
+    <a href="/" class="masthead-home-link">
+      <span class="rh-mark"></span>
+      <span class="masthead-title">Slide Studio</span>
+    </a>
+  </div>
+</div>
+
+<div class="auth-canvas">
+  <div class="container-narrow">
+  <div class="auth-eyebrow">Slide Studio</div>
+  <div class="card">
+    <h2>로그인</h2>
+
+    <form id="loginForm">
+      <label for="email">이메일</label>
+      <input type="email" id="email" name="email" placeholder="user@example.com" required autofocus>
+
+      <label for="password">비밀번호</label>
+      <input type="password" id="password" name="password" required>
+
+      <div id="errorBox" class="error-box" style="display:none"></div>
+
+      <button type="submit" class="btn btn-primary btn-block" id="submitBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>
+        <span id="submitBtnText">로그인</span>
+      </button>
+    </form>
+
+    <div class="auth-links">계정이 없으신가요? <a href="/register">회원가입</a></div>
+  </div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('loginForm');
+const errorBox = document.getElementById('errorBox');
+const submitBtn = document.getElementById('submitBtn');
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  errorBox.style.display = 'none';
+  submitBtn.disabled = true;
+  document.getElementById('submitBtnText').textContent = '로그인 중...';
+
+  const fd = new FormData(form);
+
+  try {
+    const res = await fetch('/api/login', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!res.ok) {
+      errorBox.textContent = data.detail || '로그인에 실패했습니다.';
+      errorBox.style.display = 'block';
+      submitBtn.disabled = false;
+      document.getElementById('submitBtnText').textContent = '로그인';
+      return;
+    }
+
+    window.location.href = '/';
+  } catch (err) {
+    errorBox.textContent = '서버 연결 실패: ' + err.message;
+    errorBox.style.display = 'block';
+    submitBtn.disabled = false;
+    document.getElementById('submitBtnText').textContent = '로그인';
+  }
+});
+</script>
+
+</body>
+</html>

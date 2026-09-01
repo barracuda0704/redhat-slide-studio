@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>회원가입 - Slide Studio</title>
+<style>html{background:#151515}</style>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="masthead">
+  <div class="masthead-brand">
+    <a href="/" class="masthead-home-link">
+      <span class="rh-mark"></span>
+      <span class="masthead-title">Slide Studio</span>
+    </a>
+  </div>
+</div>
+
+<div class="auth-canvas">
+  <div class="container-narrow">
+  <div class="auth-eyebrow">Slide Studio</div>
+  <div class="card" id="formCard">
+    <h2>회원가입</h2>
+
+    <form id="registerForm">
+      <label for="email">이메일</label>
+      <div class="hint">가입 후 이 이메일이 로그인 ID로 사용됩니다.</div>
+      <input type="email" id="email" name="email" placeholder="user@example.com" required autofocus>
+
+      <label for="password">비밀번호</label>
+      <div class="hint">8자 이상 입력하세요.</div>
+      <input type="password" id="password" name="password" minlength="8" required>
+
+      <label for="passwordConfirm">비밀번호 확인</label>
+      <input type="password" id="passwordConfirm" required>
+
+      <div id="errorBox" class="error-box" style="display:none"></div>
+
+      <button type="submit" class="btn btn-primary btn-block" id="submitBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21v-2a5 5 0 0 1 5-5h4"/><path d="M19 8v6"/><path d="M16 11h6"/></svg>
+        <span id="submitBtnText">가입 신청</span>
+      </button>
+    </form>
+
+    <div class="auth-links">이미 계정이 있으신가요? <a href="/login">로그인</a></div>
+  </div>
+
+  <div class="card" id="successCard" style="display:none">
+    <h2>가입 신청 완료</h2>
+    <p style="font-size:14px; color:var(--sub); margin-bottom:16px;">관리자 승인 후 로그인할 수 있습니다. 승인이 완료되면 별도로 안내받으세요.</p>
+    <a href="/login" class="btn btn-primary btn-block">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>
+      로그인 페이지로
+    </a>
+  </div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('registerForm');
+const errorBox = document.getElementById('errorBox');
+const submitBtn = document.getElementById('submitBtn');
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  errorBox.style.display = 'none';
+
+  const password = document.getElementById('password').value;
+  const passwordConfirm = document.getElementById('passwordConfirm').value;
+  if (password !== passwordConfirm) {
+    errorBox.textContent = '비밀번호가 일치하지 않습니다.';
+    errorBox.style.display = 'block';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  document.getElementById('submitBtnText').textContent = '신청 중...';
+
+  const fd = new FormData();
+  fd.append('email', document.getElementById('email').value);
+  fd.append('password', password);
+
+  try {
+    const res = await fetch('/api/register', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!res.ok) {
+      errorBox.textContent = data.detail || '가입 신청에 실패했습니다.';
+      errorBox.style.display = 'block';
+      submitBtn.disabled = false;
+      document.getElementById('submitBtnText').textContent = '가입 신청';
+      return;
+    }
+
+    document.getElementById('formCard').style.display = 'none';
+    document.getElementById('successCard').style.display = 'block';
+  } catch (err) {
+    errorBox.textContent = '서버 연결 실패: ' + err.message;
+    errorBox.style.display = 'block';
+    submitBtn.disabled = false;
+    document.getElementById('submitBtnText').textContent = '가입 신청';
+  }
+});
+</script>
+
+</body>
+</html>
