@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     SESSION_COOKIE_NAME: str = "session_token"
     SESSION_TTL_DAYS: int = 7
     SESSION_COOKIE_SECURE: bool = False
+    LOGIN_DISABLED: bool = False
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

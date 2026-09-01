@@ -133,6 +133,7 @@ a { color: inherit; }
   white-space: nowrap;
 }
 .masthead-nav {
+  margin-left: auto;
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
@@ -224,7 +225,6 @@ a { color: inherit; }
 .nav-links a.active { background: rgba(255,255,255,.12); color: #fff; }
 
 .nav-user {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 2px;

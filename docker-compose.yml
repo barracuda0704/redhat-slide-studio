@@ -6,4 +6,6 @@ services:
     volumes:
       - ./data:/app/data
       - ./data/projects:/app/engine/projects
+    environment:
+      - LOGIN_DISABLED=true
     restart: unless-stopped

@@ -37,8 +37,19 @@ user_manager = UserManager(
 
 project_manager = ProjectManager(settings.ENGINE_DIR)
 
+SERVICE_ACCOUNT_EMAIL = "service@slide-studio.local"
+
+_SERVICE_USER = User(
+    email=SERVICE_ACCOUNT_EMAIL,
+    password_hash="",
+    role=UserRole.USER,
+    status=UserStatus.APPROVED,
+)
+
 
 def get_current_user(request: Request) -> User:
+    if settings.LOGIN_DISABLED:
+        return _SERVICE_USER
     token = request.cookies.get(settings.SESSION_COOKIE_NAME)
     user = user_manager.get_session_user(token) if token else None
     if not user:
@@ -53,6 +64,8 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
 
 
 def _logged_in_user(request: Request) -> User | None:
+    if settings.LOGIN_DISABLED:
+        return _SERVICE_USER
     token = request.cookies.get(settings.SESSION_COOKIE_NAME)
     return user_manager.get_session_user(token) if token else None
 
@@ -61,11 +74,15 @@ def _logged_in_user(request: Request) -> User | None:
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page():
+    if settings.LOGIN_DISABLED:
+        return RedirectResponse("/")
     return (WEB_DIR / "login.html").read_text(encoding="utf-8")
 
 
 @app.get("/register", response_class=HTMLResponse)
 async def register_page():
+    if settings.LOGIN_DISABLED:
+        return RedirectResponse("/")
     return (WEB_DIR / "register.html").read_text(encoding="utf-8")
 
 
@@ -140,7 +157,7 @@ async def api_logout(request: Request, response: Response):
 
 @app.get("/api/me")
 async def api_me(user: User = Depends(get_current_user)):
-    return {"email": user.email, "role": user.role.value}
+    return {"email": user.email, "role": user.role.value, "login_disabled": settings.LOGIN_DISABLED}
 
 
 # ── Admin API ──

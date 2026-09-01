@@ -191,6 +191,7 @@ async function loadNavUser() {
     const res = await fetch('/api/me');
     if (!res.ok) { window.location.href = '/login'; return; }
     const me = await res.json();
+    if (me.login_disabled) return;
     document.getElementById('navUser').innerHTML = navUserHTML(me);
   } catch(e) { window.location.href = '/login'; }
 }

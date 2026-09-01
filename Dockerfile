@@ -8,12 +8,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
 # Vendored build engine (html2pptx.js/build.js) — installed natively for
-# this image's platform, not borrowed from a host checkout.
+# this image's platform, not borrowed from a host checkout. Installed from
+# just package.json so app-code-only changes below don't bust this layer
+# (Playwright's Chromium download is the expensive part).
+COPY engine/package.json engine/package.json
 RUN npm install --prefix engine --omit=dev
 RUN npx --prefix engine playwright install --with-deps chromium
+
+COPY . .
 
 RUN mkdir -p /app/data /app/engine/projects
 
