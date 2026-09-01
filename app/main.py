@@ -374,7 +374,7 @@ async def api_slide_preview(name: str, filename: str):
 @app.post("/api/projects/{name}/build")
 async def api_build(name: str, _: User = Depends(get_current_user)):
     try:
-        pptx_path = project_manager.build_pptx(name)
+        pptx_path = await asyncio.to_thread(project_manager.build_pptx, name)
         return {"status": "completed", "path": pptx_path}
     except (ValueError, RuntimeError) as e:
         raise HTTPException(400, str(e))
