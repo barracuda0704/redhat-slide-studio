@@ -6,8 +6,13 @@
 <title>프로젝트 - Slide Studio</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-.project-layout { display: grid; grid-template-columns: 240px 1fr; gap: 0; min-height: calc(100vh - 200px); background: var(--surface-card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.slide-sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; overflow: hidden; }
+.masthead { flex-shrink: 0; }
+main.content { flex: 1; min-height: 0; display: flex; }
+
+.project-layout { flex: 1; min-height: 0; width: 100%; display: grid; grid-template-columns: 240px 1fr; gap: 0; background: var(--surface-card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.slide-sidebar { height: 100%; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
 .slide-list-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer;
   color: var(--text-muted); font-size: 13px; transition: background 0.15s;
@@ -18,8 +23,9 @@
 .slide-num { font-weight: 700; color: var(--rh-red); min-width: 24px; text-align: center; font-size: 12px; }
 .slide-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 
-.slide-main { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; background: var(--surface-card); }
+.slide-main { height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; background: var(--surface-card); }
 .toolbar {
+  flex-shrink: 0;
   display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; flex-wrap: wrap;
 }
@@ -35,19 +41,7 @@
 .status-building { background: var(--rh-red-tint); color: var(--rh-red-dark); }
 .status-failed { background: var(--danger-bg); color: var(--danger); }
 
-.preview-container {
-  flex: 1; background: #2b2b2b; border-radius: 6px; overflow: hidden;
-  display: flex; align-items: center; justify-content: center; min-height: 400px;
-  position: relative;
-}
-.preview-container iframe {
-  width: 720px; height: 405px; border: none; background: #fff;
-  transform-origin: center center;
-  box-shadow: 0 4px 20px rgba(0,0,0,.35);
-}
-.preview-empty { color: #b8bbbe; font-size: 14px; }
-
-.tab-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
+.tab-bar { flex-shrink: 0; display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
 .tab-btn {
   padding: 8px 18px; cursor: pointer; color: var(--text-muted); font-size: 13px;
   border-bottom: 2px solid transparent; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none;
@@ -55,19 +49,28 @@
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { color: var(--rh-red); border-bottom-color: var(--rh-red); }
 
-.content-editor { display: none; }
-.content-editor textarea {
-  width: 100%; min-height: 500px; box-sizing: border-box; padding: 16px;
-  background: #fff; color: var(--text); border: 1px solid var(--border-strong);
-  border-radius: 4px; font-family: 'Red Hat Mono', monospace; font-size: 13px; line-height: 1.6; resize: vertical;
+#previewTab { flex: 1; min-height: 0; display: flex; }
+.preview-container {
+  flex: 1; min-height: 0; width: 100%; background: var(--rh-black); border-radius: 6px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
 }
-.html-editor { display: none; }
-.html-editor textarea {
-  width: 100%; min-height: 400px; box-sizing: border-box; padding: 16px;
-  background: #fff; color: var(--text); border: 1px solid var(--border-strong);
-  border-radius: 4px; font-family: 'Red Hat Mono', monospace; font-size: 12px; line-height: 1.5; resize: vertical;
+.preview-container iframe {
+  width: 720px; height: 405px; border: none; background: #fff;
+  transform-origin: center center;
+  box-shadow: 0 4px 24px rgba(0,0,0,.5);
 }
-.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.preview-empty { color: #9aa0a6; font-size: 14px; }
+
+.content-editor, .html-editor { flex: 1; min-height: 0; display: none; flex-direction: column; }
+.content-editor textarea, .html-editor textarea {
+  flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 16px;
+  background: #fff; color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: 4px; font-family: 'Red Hat Mono', monospace; line-height: 1.6; resize: none;
+}
+.content-editor textarea { font-size: 13px; }
+.html-editor textarea { font-size: 12px; line-height: 1.5; }
+.section-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .section-header h3 { margin: 0; font-size: 14px; color: var(--text); }
 </style>
 </head>
@@ -91,8 +94,8 @@
   <div class="project-layout">
     <!-- Sidebar: slide list -->
     <div class="slide-sidebar">
-      <div style="padding:0 16px 12px; border-bottom:1px solid var(--border-color); margin-bottom:8px;">
-        <h3 style="margin:0 0 4px; font-size:13px; color:var(--text-primary);">슬라이드</h3>
+      <div style="padding:0 16px 12px; border-bottom:1px solid var(--border); margin-bottom:8px;">
+        <h3 style="margin:0 0 4px; font-size:13px; color:var(--text);">슬라이드</h3>
         <div style="font-size:11px; color:var(--text-muted);" id="slideCount">0장</div>
       </div>
       <div id="slideList"></div>
@@ -279,8 +282,8 @@ async function saveContent() {
 function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('previewTab').style.display = tab === 'preview' ? '' : 'none';
-  document.getElementById('htmlTab').style.display = tab === 'html' ? 'block' : 'none';
-  document.getElementById('contentTab').style.display = tab === 'content' ? 'block' : 'none';
+  document.getElementById('htmlTab').style.display = tab === 'html' ? 'flex' : 'none';
+  document.getElementById('contentTab').style.display = tab === 'content' ? 'flex' : 'none';
   if (tab === 'content') loadContent();
   if (tab === 'preview' && currentSlide) selectSlide(currentSlide);
 }
