@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>프로젝트 - Slide Studio</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/xml-fold.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchtags.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closetag.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
 <style>
 html, body { height: 100%; }
 body { display: flex; flex-direction: column; overflow: hidden; }
@@ -76,13 +88,14 @@ main.content { flex: 1; min-height: 0; display: flex; }
 }
 .html-dirty-dot.show { display: inline-block; }
 .html-accordion-actions { margin-left: auto; display: flex; gap: 8px; }
-.html-accordion-body { display: none; flex-direction: column; gap: 8px; height: 280px; padding: 12px 16px; box-sizing: border-box; }
+.html-accordion-body { display: none; flex-direction: column; gap: 8px; height: 320px; padding: 12px 16px; box-sizing: border-box; }
 .html-accordion.open .html-accordion-body { display: flex; }
-.html-accordion-body textarea {
-  flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 12px;
-  background: #fff; color: var(--text); border: 1px solid var(--border-strong);
-  border-radius: 4px; font-family: 'Red Hat Mono', monospace; font-size: 12px; line-height: 1.5; resize: none;
+.html-accordion-body .CodeMirror {
+  flex: 1; min-height: 0; height: 100%; width: 100%;
+  border: 1px solid var(--border-strong); border-radius: 4px;
+  font-family: 'Red Hat Mono', monospace; font-size: 12px; line-height: 1.5;
 }
+.html-accordion-body .CodeMirror-activeline-background { background: var(--rh-red-tint); }
 
 .content-editor { flex: 1; min-height: 0; display: none; flex-direction: column; }
 .content-editor textarea {
@@ -160,7 +173,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
             </div>
           </div>
           <div class="html-accordion-body">
-            <textarea id="htmlEditor" spellcheck="false" oninput="onHtmlInput()"></textarea>
+            <textarea id="htmlEditor" spellcheck="false"></textarea>
           </div>
         </div>
       </div>
@@ -204,6 +217,20 @@ let previewResizeObserver = null;
 let originalHtml = '';
 let htmlDirty = false;
 let liveUpdateTimer = null;
+
+const htmlCM = CodeMirror.fromTextArea(document.getElementById('htmlEditor'), {
+  mode: 'htmlmixed',
+  lineNumbers: true,
+  lineWrapping: true,
+  matchBrackets: true,
+  matchTags: {bothTags: true},
+  autoCloseBrackets: true,
+  autoCloseTags: true,
+  styleActiveLine: true,
+  indentUnit: 2,
+  tabSize: 2,
+});
+htmlCM.on('change', onHtmlInput);
 
 function confirmDiscardIfDirty() {
   if (!htmlDirty) return true;
@@ -257,7 +284,8 @@ async function loadProject() {
 }
 
 function toggleHtmlEditor() {
-  document.getElementById('htmlAccordion').classList.toggle('open');
+  const open = document.getElementById('htmlAccordion').classList.toggle('open');
+  if (open) requestAnimationFrame(() => htmlCM.refresh());
   requestAnimationFrame(fitPreviewFrame);
 }
 
@@ -275,7 +303,7 @@ function renderPreview(rawHtml) {
 }
 
 function onHtmlInput() {
-  const val = document.getElementById('htmlEditor').value;
+  const val = htmlCM.getValue();
   setDirty(val !== originalHtml);
   clearTimeout(liveUpdateTimer);
   liveUpdateTimer = setTimeout(() => renderPreview(val), 250);
@@ -304,14 +332,15 @@ async function selectSlide(filename) {
   if (res.ok) {
     const data = await res.json();
     originalHtml = data.html;
-    document.getElementById('htmlEditor').value = data.html;
+    htmlCM.setValue(data.html);
+    htmlCM.clearHistory();
     renderPreview(data.html);
   }
 }
 
 async function saveSlideHtml() {
   if (!currentSlide) return;
-  const html = document.getElementById('htmlEditor').value;
+  const html = htmlCM.getValue();
   const res = await fetch('/api/projects/' + projectName + '/slides/' + currentSlide, {
     method: 'PUT',
     headers: {'Content-Type': 'application/json'},
@@ -348,7 +377,7 @@ function switchTab(tab) {
   if (tab !== 'slide' && !confirmDiscardIfDirty()) return;
   if (tab !== 'slide') {
     setDirty(false);
-    document.getElementById('htmlEditor').value = originalHtml;
+    htmlCM.setValue(originalHtml);
   }
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('slideTab').style.display = tab === 'slide' ? 'flex' : 'none';
