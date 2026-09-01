@@ -79,6 +79,11 @@ def _build_slide_system(theme_css: str, icon_list: str, theme_guide: str) -> str
 ## 캔버스 규격 (필수)
 - 크기: 720pt × 405pt (16:9)
 - 외부 패딩: body {{ padding: 25pt 35pt 45pt 35pt; }}
+- **실제 콘텐츠에 쓸 수 있는 세로 공간은 335pt(405 - 25 - 45)뿐입니다.** 표/카드가 많거나
+  "여백 없이 꽉 채워달라"는 요청이어도, 각 요소의 margin/padding/line-height을 합산해 이
+  335pt를 절대 넘기지 마세요. 정확히 채우려다 1~2pt만 넘어도 해당 슬라이드는 PPTX 빌드에서
+  통째로 누락됩니다. 표가 3개 이상이거나 행이 많으면 셀 padding·행간·섹션 간 margin을 미리
+  줄여서 5~10pt 정도 안전 여백을 남기세요.
 - 폰트: Noto Sans KR
 - 배경: 단색만 허용 (그라디언트, 사진 배경 금지)
 - word-break: keep-all (한글 텍스트)
