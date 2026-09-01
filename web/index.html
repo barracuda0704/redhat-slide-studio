@@ -4,27 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Slide Studio</title>
-<style>html{background:#151515}</style>
 <link rel="stylesheet" href="/static/style.css">
 <style>
 .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
 .project-card {
-  background: var(--bg-card, #1e1e1e); border: 1px solid var(--border-color); border-radius: 6px;
+  background: var(--surface-card); border: 1px solid var(--border); border-radius: 6px;
   padding: 20px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
 }
 .project-card:hover { border-color: var(--rh-red); box-shadow: 0 2px 12px rgba(238,0,0,0.1); }
-.project-card h3 { margin: 0 0 6px; font-size: 15px; color: var(--text-primary); }
+.project-card h3 { margin: 0 0 6px; font-size: 15px; color: var(--text); }
 .project-card .desc { color: var(--text-muted); font-size: 12px; margin: 0 0 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-card .meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .project-card .meta-item { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
 .project-card .badge {
   display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; text-transform: uppercase;
+  border: 1px solid transparent;
 }
-.badge-draft { background: rgba(255,255,255,0.08); color: var(--text-muted); }
-.badge-generating { background: rgba(245,146,27,0.15); color: #f5921b; }
-.badge-completed { background: rgba(76,175,80,0.15); color: #4caf50; }
-.badge-building { background: rgba(238,0,0,0.15); color: var(--rh-red); }
-.badge-failed { background: rgba(238,0,0,0.15); color: #ee0000; }
+.badge-draft { background: #F6F6F6; color: var(--text-muted); border-color: var(--border); }
+.badge-generating { background: var(--warning-bg); color: var(--warning); }
+.badge-completed { background: var(--success-bg); color: var(--success); }
+.badge-building { background: var(--rh-red-tint); color: var(--rh-red-dark); }
+.badge-failed { background: var(--danger-bg); color: var(--danger); }
 </style>
 </head>
 <body>
