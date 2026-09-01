@@ -1,0 +1,12 @@
+.git
+.claude
+.gitignore
+data
+engine/projects
+engine/node_modules
+node_modules
+__pycache__
+*.pyc
+.env
+*.pptx
+.DS_Store
