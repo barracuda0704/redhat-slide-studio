@@ -1,10 +1,14 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
     APP_TITLE: str = "Slide Studio"
     DATA_DIR: str = "/app/data"
-    ENGINE_DIR: str = "/Users/mykim/claude/rh-slide-skill"
+    ENGINE_DIR: str = str(BASE_DIR / "engine")
 
     USE_VERTEX: bool = True
     VERTEX_PROJECT_ID: str = ""

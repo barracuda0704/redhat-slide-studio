@@ -4,6 +4,7 @@ __pycache__/
 data/*.json
 node_modules/
 *.pptx
+engine/projects/
 .DS_Store
 *.egg-info/
 dist/

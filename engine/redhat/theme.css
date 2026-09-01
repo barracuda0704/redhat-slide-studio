@@ -1,0 +1,74 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
+
+:root {
+  --primary: #ee0000;
+  --primary-dark: #a60000;
+  --primary-darker: #660000;
+  --text: #151515;
+  --text-secondary: #4d4d4d;
+  --background: #ffffff;
+  --background-alt: #f2f2f2;
+}
+
+html { background: var(--background); }
+
+body {
+  width: 720pt;
+  height: 405pt;
+  margin: 0;
+  padding: 25pt 35pt 45pt 35pt;
+  font-family: 'Noto Sans KR', sans-serif;
+  box-sizing: border-box;
+}
+
+h1 {
+  color: var(--text);
+  font-size: 22pt;
+  font-weight: 700;
+  margin: 0 0 5pt 0;
+}
+
+h2 {
+  color: var(--primary);
+  font-size: 18pt;
+  font-weight: 700;
+  margin: 0 0 10pt 0;
+}
+
+p {
+  color: var(--text);
+  font-size: 11pt;
+  line-height: 1.5;
+  margin: 0;
+}
+
+ul, ol {
+  margin: 0;
+  padding-left: 15pt;
+}
+
+li {
+  color: var(--text-secondary);
+  font-size: 10pt;
+  line-height: 1.5;
+  margin-bottom: 5pt;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 12pt;
+  margin: 0 0 15pt 0;
+}
+
+.summary-box {
+  background: var(--background-alt);
+  border-left: 4pt solid var(--primary);
+  padding: 8pt 12pt;
+  margin-bottom: 15pt;
+}
+
+.summary-box p {
+  color: var(--text-secondary);
+  font-size: 9pt;
+  line-height: 1.4;
+}

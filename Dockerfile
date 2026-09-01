@@ -10,7 +10,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/data
+# Vendored build engine (html2pptx.js/build.js) — installed natively for
+# this image's platform, not borrowed from a host checkout.
+RUN npm install --prefix engine --omit=dev
+RUN npx --prefix engine playwright install --with-deps chromium
+
+RUN mkdir -p /app/data /app/engine/projects
 
 EXPOSE 8501
 

@@ -1,0 +1,11 @@
+{
+  "name": "redhat-slide-studio-engine",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Vendored HTML-to-PPTX build engine used by redhat-slide-studio (build.js + html2pptx.js). Not a standalone project.",
+  "dependencies": {
+    "playwright": "^1.57.0",
+    "pptxgenjs": "^4.0.1",
+    "sharp": "^0.34.5"
+  }
+}

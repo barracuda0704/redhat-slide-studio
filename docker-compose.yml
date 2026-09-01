@@ -5,8 +5,5 @@ services:
       - "8501:8501"
     volumes:
       - ./data:/app/data
-      - /Users/mykim/claude/rh-slide-skill:/app/engine
-    environment:
-      - ENGINE_DIR=/app/engine
-      - DATA_DIR=/app/data
+      - ./data/projects:/app/engine/projects
     restart: unless-stopped
