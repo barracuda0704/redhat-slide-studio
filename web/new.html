@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>새 프레젠테이션 - Slide Studio</title>
+<title>새 슬라이드 - Slide Studio</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
 .form-group { margin-bottom: 18px; }
@@ -33,7 +33,7 @@
       <span class="rh-mark"></span>
       <span class="masthead-title">Slide Studio</span>
     </a>
-    <span class="masthead-context">새 프레젠테이션</span>
+    <span class="masthead-context">새 슬라이드</span>
   </div>
   <nav class="masthead-nav">
     <a href="/" class="masthead-nav-link">대시보드</a>
@@ -52,7 +52,7 @@
     <div class="card">
       <form id="createForm">
         <div class="form-group">
-          <label for="title">프레젠테이션 제목</label>
+          <label for="title">슬라이드 제목</label>
           <input type="text" id="title" placeholder="예: Red Hat OpenShift AI 소개" required>
         </div>
 
@@ -64,7 +64,7 @@
 
         <div class="form-group">
           <label for="description">주제 설명</label>
-          <textarea id="description" placeholder="프레젠테이션에서 다루고 싶은 내용을 자세히 설명해주세요..."></textarea>
+          <textarea id="description" placeholder="슬라이드에서 다루고 싶은 내용을 자세히 설명해주세요..."></textarea>
         </div>
 
         <div class="form-row">
@@ -91,7 +91,7 @@
 
         <button type="submit" class="btn btn-primary btn-block" id="submitBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-          <span id="submitText">프레젠테이션 생성</span>
+          <span id="submitText">슬라이드 생성</span>
         </button>
       </form>
 
@@ -230,7 +230,7 @@ document.getElementById('createForm').addEventListener('submit', async e => {
     errorBox.textContent = err.message;
     errorBox.style.display = 'block';
     document.getElementById('submitBtn').disabled = false;
-    document.getElementById('submitText').textContent = '프레젠테이션 생성';
+    document.getElementById('submitText').textContent = '슬라이드 생성';
   }
 });
 

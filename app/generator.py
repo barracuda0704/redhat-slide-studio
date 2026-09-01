@@ -32,7 +32,7 @@ def _load_theme_guide(engine_dir: str, theme_id: str) -> str:
     return p.read_text("utf-8") if p.exists() else ""
 
 
-CONTENT_SYSTEM = """당신은 Red Hat 기술 프레젠테이션 전문가입니다. 주어진 주제에 대해 프레젠테이션 콘텐츠(content.md)를 작성합니다.
+CONTENT_SYSTEM = """당신은 Red Hat 기술 슬라이드 전문가입니다. 주어진 주제에 대해 슬라이드 콘텐츠(content.md)를 작성합니다.
 
 작성 규칙:
 - 한국어로 작성
@@ -44,7 +44,7 @@ CONTENT_SYSTEM = """당신은 Red Hat 기술 프레젠테이션 전문가입니�
 - 슬라이드당 핵심 메시지는 하나만
 
 출력 형식:
-# [프레젠테이션 제목]
+# [슬라이드 제목]
 
 ## Slide 1: [타이틀]
 - [내용]
