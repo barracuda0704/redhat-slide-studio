@@ -112,16 +112,8 @@
 
           <div class="form-group">
             <label for="numSlides">슬라이드 수</label>
-            <select id="numSlides">
-              <option value="6">6장</option>
-              <option value="8" selected>8장</option>
-              <option value="10">10장</option>
-              <option value="12">12장</option>
-              <option value="14">14장</option>
-              <option value="16">16장</option>
-              <option value="18">18장</option>
-              <option value="20">20장</option>
-            </select>
+            <input type="number" id="numSlides" min="1" max="30" step="1" value="8">
+            <div class="form-hint">1~30 사이 숫자를 직접 입력하거나 위/아래 화살표로 조절하세요.</div>
           </div>
         </div>
 
@@ -289,6 +281,9 @@ document.getElementById('createForm').addEventListener('submit', async e => {
   if (!title) { errorBox.textContent = '제목을 입력하세요.'; errorBox.style.display = 'block'; return; }
   if (createMode === 'markdown' && !markdownContent) {
     errorBox.textContent = '마크다운 내용을 입력하세요.'; errorBox.style.display = 'block'; return;
+  }
+  if (!Number.isInteger(numSlides) || numSlides < 1 || numSlides > 30) {
+    errorBox.textContent = '슬라이드 수는 1~30 사이 숫자로 입력하세요.'; errorBox.style.display = 'block'; return;
   }
   if (!name) name = 'project-' + Date.now().toString(36);
 

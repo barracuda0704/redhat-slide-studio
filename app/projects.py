@@ -213,11 +213,52 @@ class ProjectManager:
                 # never pick a backup up as a real slide.
                 (self._backup_dir(name, version) / filename).write_text(target.read_text("utf-8"), "utf-8")
             target.write_text(html, "utf-8")
+            self._sync_content_md_slide(name, filename, html, version)
             meta = self._load_meta(name, version)
             if meta:
                 meta["updated"] = self._now_iso()
                 meta["slides"] = len(list(html_dir.glob("slide*.html")))
                 self._save_meta(name, meta, version)
+
+    _TAG_RE = re.compile(r'<[^>]+>')
+
+    def _extract_slide_summary(self, html: str) -> tuple[str, list[str]]:
+        """Rough text extraction from a slide's HTML for content.md sync —
+        not a real HTML parser, just enough to keep the outline readable."""
+        title_m = re.search(r'<h[1-3][^>]*>(.*?)</h[1-3]>', html, re.DOTALL | re.IGNORECASE)
+        title = self._TAG_RE.sub('', title_m.group(1)).strip() if title_m else "제목 없음"
+        bullets = []
+        for tag in ('p', 'li'):
+            for m in re.finditer(rf'<{tag}[^>]*>(.*?)</{tag}>', html, re.DOTALL | re.IGNORECASE):
+                text = self._TAG_RE.sub('', m.group(1)).strip()
+                if text and text != title and text not in bullets:
+                    bullets.append(text)
+        return title or "제목 없음", bullets[:6]
+
+    def _sync_content_md_slide(self, name: str, filename: str, html: str, version: str = "v1.0"):
+        """A slide added via "새 슬라이드" starts as a blank template with no
+        content.md entry at all. Once the user fills it in and saves, add a
+        matching "## Slide N:" section so content.md doesn't silently miss
+        it. Only ever ADDS a missing section — never overwrites one that
+        already exists, since AI-generated slides already have a much
+        richer content.md entry than this regex-based extraction could
+        reproduce, and every save (including ones during AI generation
+        itself) goes through this same path."""
+        m = re.match(r'slide(\d+)-', filename)
+        if not m:
+            return
+        slide_num = int(m.group(1))
+        content_path = self._version_dir(name, version) / "content.md"
+        if not content_path.exists():
+            return
+        content = content_path.read_text("utf-8")
+        if re.search(rf'^##\s*Slide\s+{slide_num}:', content, re.MULTILINE):
+            return  # already has an entry (AI-generated or previously synced) — leave it alone
+
+        title, bullets = self._extract_slide_summary(html)
+        bullet_block = "\n".join(f"- {b}" for b in bullets) if bullets else "- (내용 없음)"
+        new_section = f"## Slide {slide_num}: {title}\n{bullet_block}\n"
+        content_path.write_text(content.rstrip("\n") + "\n\n" + new_section, "utf-8")
 
     def get_slide_html(self, name: str, filename: str, version: str = "v1.0") -> str:
         p = self._version_dir(name, version) / "html" / _validate_filename(filename)
