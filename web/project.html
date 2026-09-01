@@ -176,6 +176,7 @@ async function logout() { await fetch('/api/logout', {method:'POST'}); window.lo
 const projectName = window.location.pathname.split('/projects/')[1]?.replace(/\/$/, '');
 let currentSlide = null;
 let project = null;
+let previewResizeObserver = null;
 
 function updateStatusBadge(status) {
   const badge = document.getElementById('statusBadge');
@@ -227,8 +228,13 @@ function selectSlide(filename) {
   empty.style.display = 'none';
   frame.src = '/api/projects/' + projectName + '/slides/' + filename + '/preview';
 
-  // scale iframe to fill the preview stage
+  // scale iframe to fill the preview stage; keep re-fitting as the stage's
+  // real size settles (web fonts loading, layout reflow, tab switches, etc.)
   requestAnimationFrame(fitPreviewFrame);
+  if (!previewResizeObserver) {
+    previewResizeObserver = new ResizeObserver(fitPreviewFrame);
+    previewResizeObserver.observe(document.getElementById('previewContainer'));
+  }
 
   // load HTML editor
   loadSlideHtml(filename);
