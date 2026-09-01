@@ -3,9 +3,12 @@ services:
     build: .
     ports:
       - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - LOGIN_DISABLED=true
     volumes:
       - ./data:/app/data
       - ./data/projects:/app/engine/projects
-    environment:
-      - LOGIN_DISABLED=true
+      - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     restart: unless-stopped
