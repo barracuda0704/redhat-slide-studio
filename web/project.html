@@ -49,7 +49,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { color: var(--rh-red); border-bottom-color: var(--rh-red); }
 
-#previewTab { flex: 1; min-height: 0; display: flex; }
+#slideTab { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 .preview-container {
   flex: 1; min-height: 0; width: 100%; box-sizing: border-box; background: #fff;
   border: 1px solid var(--border-strong); border-radius: 4px; overflow: hidden;
@@ -57,20 +57,39 @@ main.content { flex: 1; min-height: 0; display: flex; }
   position: relative;
 }
 .preview-container iframe {
-  width: 720px; height: 405px; border: none; background: #fff;
+  width: 960px; height: 540px; border: none; background: #fff;
   transform-origin: center center;
   overflow: hidden;
 }
 .preview-empty { color: var(--text-muted); font-size: 14px; }
 
-.content-editor, .html-editor { flex: 1; min-height: 0; display: none; flex-direction: column; }
-.content-editor textarea, .html-editor textarea {
+.html-accordion { flex-shrink: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.html-accordion-header {
+  display: flex; align-items: center; gap: 8px; padding: 10px 16px; cursor: pointer;
+  font-size: 13px; font-weight: 700; color: var(--text); user-select: none;
+}
+.html-accordion-header .chevron { transition: transform .15s; color: var(--text-muted); }
+.html-accordion.open .html-accordion-header { border-bottom: 1px solid var(--border); }
+.html-accordion.open .html-accordion-header .chevron { transform: rotate(90deg); }
+.html-dirty-dot {
+  display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--rh-red); flex-shrink: 0;
+}
+.html-dirty-dot.show { display: inline-block; }
+.html-accordion-actions { margin-left: auto; display: flex; gap: 8px; }
+.html-accordion-body { display: none; flex-direction: column; gap: 8px; height: 280px; padding: 12px 16px; box-sizing: border-box; }
+.html-accordion.open .html-accordion-body { display: flex; }
+.html-accordion-body textarea {
+  flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 12px;
+  background: #fff; color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: 4px; font-family: 'Red Hat Mono', monospace; font-size: 12px; line-height: 1.5; resize: none;
+}
+
+.content-editor { flex: 1; min-height: 0; display: none; flex-direction: column; }
+.content-editor textarea {
   flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 16px;
   background: #fff; color: var(--text); border: 1px solid var(--border-strong);
-  border-radius: 4px; font-family: 'Red Hat Mono', monospace; line-height: 1.6; resize: none;
+  border-radius: 4px; font-family: 'Red Hat Mono', monospace; font-size: 13px; line-height: 1.6; resize: none;
 }
-.content-editor textarea { font-size: 13px; }
-.html-editor textarea { font-size: 12px; line-height: 1.5; }
 .section-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .section-header h3 { margin: 0; font-size: 14px; color: var(--text); }
 </style>
@@ -79,14 +98,14 @@ main.content { flex: 1; min-height: 0; display: flex; }
 
 <div class="masthead">
   <div class="masthead-brand">
-    <a href="/" class="masthead-home-link">
+    <a href="/" class="masthead-home-link" id="homeLink">
       <span class="rh-mark"></span>
       <span class="masthead-title">Slide Studio</span>
     </a>
     <span class="masthead-context" id="projectTitle">프로젝트</span>
   </div>
   <nav class="masthead-nav">
-    <a href="/" class="masthead-nav-link">대시보드</a>
+    <a href="/" class="masthead-nav-link" id="dashboardLink">대시보드</a>
   </nav>
   <div class="nav-user" id="navUser"></div>
 </div>
@@ -120,26 +139,30 @@ main.content { flex: 1; min-height: 0; display: flex; }
 
       <!-- Tabs -->
       <div class="tab-bar">
-        <button class="tab-btn active" data-tab="preview" onclick="switchTab('preview')">미리보기</button>
-        <button class="tab-btn" data-tab="html" onclick="switchTab('html')">HTML 편집</button>
+        <button class="tab-btn active" data-tab="slide" onclick="switchTab('slide')">슬라이드</button>
         <button class="tab-btn" data-tab="content" onclick="switchTab('content')">Content.md</button>
       </div>
 
-      <!-- Preview -->
-      <div id="previewTab">
+      <!-- Slide: preview + collapsible HTML editor -->
+      <div id="slideTab">
         <div class="preview-container" id="previewContainer">
           <div class="preview-empty" id="previewEmpty">슬라이드를 선택하세요.</div>
           <iframe id="previewFrame" style="display:none"></iframe>
         </div>
-      </div>
 
-      <!-- HTML Editor -->
-      <div class="html-editor" id="htmlTab">
-        <div class="section-header">
-          <h3 id="htmlEditorTitle">HTML 편집</h3>
-          <button class="btn btn-primary" onclick="saveSlideHtml()" style="font-size:12px; padding:5px 12px;">저장</button>
+        <div class="html-accordion" id="htmlAccordion">
+          <div class="html-accordion-header" onclick="toggleHtmlEditor()">
+            <svg class="chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            <span id="htmlEditorTitle">HTML 편집</span>
+            <span class="html-dirty-dot" id="htmlDirtyDot" title="저장되지 않은 변경사항"></span>
+            <div class="html-accordion-actions" onclick="event.stopPropagation()">
+              <button class="btn btn-primary" onclick="saveSlideHtml()" style="font-size:12px; padding:5px 12px;">저장</button>
+            </div>
+          </div>
+          <div class="html-accordion-body">
+            <textarea id="htmlEditor" spellcheck="false" oninput="onHtmlInput()"></textarea>
+          </div>
         </div>
-        <textarea id="htmlEditor" spellcheck="false"></textarea>
       </div>
 
       <!-- Content Editor -->
@@ -177,6 +200,23 @@ const projectName = window.location.pathname.split('/projects/')[1]?.replace(/\/
 let currentSlide = null;
 let project = null;
 let previewResizeObserver = null;
+let originalHtml = '';
+let htmlDirty = false;
+let liveUpdateTimer = null;
+
+function confirmDiscardIfDirty() {
+  if (!htmlDirty) return true;
+  return confirm('저장하지 않은 변경사항이 있습니다. 계속하면 변경사항이 사라집니다. 계속하시겠습니까?');
+}
+
+function setDirty(v) {
+  htmlDirty = v;
+  document.getElementById('htmlDirtyDot').classList.toggle('show', v);
+}
+
+window.addEventListener('beforeunload', (e) => {
+  if (htmlDirty) { e.preventDefault(); e.returnValue = ''; }
+});
 
 function updateStatusBadge(status) {
   const badge = document.getElementById('statusBadge');
@@ -215,37 +255,56 @@ async function loadProject() {
   }
 }
 
-function selectSlide(filename) {
+function toggleHtmlEditor() {
+  document.getElementById('htmlAccordion').classList.toggle('open');
+  requestAnimationFrame(fitPreviewFrame);
+}
+
+function buildPreviewHtml(rawHtml) {
+  return rawHtml
+    .replaceAll('../../../../redhat/', '/engine/redhat/')
+    .replaceAll('src="assets/', 'src="/api/projects/' + projectName + '/assets/');
+}
+
+function renderPreview(rawHtml) {
+  const frame = document.getElementById('previewFrame');
+  frame.setAttribute('scrolling', 'no');
+  frame.srcdoc = buildPreviewHtml(rawHtml);
+  requestAnimationFrame(fitPreviewFrame);
+}
+
+function onHtmlInput() {
+  const val = document.getElementById('htmlEditor').value;
+  setDirty(val !== originalHtml);
+  clearTimeout(liveUpdateTimer);
+  liveUpdateTimer = setTimeout(() => renderPreview(val), 250);
+}
+
+async function selectSlide(filename) {
+  if (filename === currentSlide) return;
+  if (!confirmDiscardIfDirty()) return;
+
   currentSlide = filename;
+  setDirty(false);
   document.querySelectorAll('.slide-list-item').forEach((el, i) => {
     el.className = 'slide-list-item' + ((project.slides || [])[i] === filename ? ' active' : '');
   });
 
-  const frame = document.getElementById('previewFrame');
-  const empty = document.getElementById('previewEmpty');
-  frame.style.display = 'block';
-  frame.setAttribute('scrolling', 'no');
-  empty.style.display = 'none';
-  frame.src = '/api/projects/' + projectName + '/slides/' + filename + '/preview';
+  document.getElementById('previewEmpty').style.display = 'none';
+  document.getElementById('previewFrame').style.display = 'block';
+  document.getElementById('htmlEditorTitle').textContent = 'HTML 편집 — ' + filename;
 
-  // scale iframe to fill the preview stage; keep re-fitting as the stage's
-  // real size settles (web fonts loading, layout reflow, tab switches, etc.)
-  requestAnimationFrame(fitPreviewFrame);
   if (!previewResizeObserver) {
     previewResizeObserver = new ResizeObserver(fitPreviewFrame);
     previewResizeObserver.observe(document.getElementById('previewContainer'));
   }
 
-  // load HTML editor
-  loadSlideHtml(filename);
-}
-
-async function loadSlideHtml(filename) {
   const res = await fetch('/api/projects/' + projectName + '/slides/' + filename);
   if (res.ok) {
     const data = await res.json();
+    originalHtml = data.html;
     document.getElementById('htmlEditor').value = data.html;
-    document.getElementById('htmlEditorTitle').textContent = 'HTML 편집 — ' + filename;
+    renderPreview(data.html);
   }
 }
 
@@ -258,8 +317,11 @@ async function saveSlideHtml() {
     body: JSON.stringify({html})
   });
   if (res.ok) {
-    selectSlide(currentSlide);
+    originalHtml = html;
+    setDirty(false);
     showToast('저장 완료');
+  } else {
+    showToast('저장 실패', true);
   }
 }
 
@@ -282,12 +344,16 @@ async function saveContent() {
 }
 
 function switchTab(tab) {
+  if (tab !== 'slide' && !confirmDiscardIfDirty()) return;
+  if (tab !== 'slide') {
+    setDirty(false);
+    document.getElementById('htmlEditor').value = originalHtml;
+  }
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  document.getElementById('previewTab').style.display = tab === 'preview' ? '' : 'none';
-  document.getElementById('htmlTab').style.display = tab === 'html' ? 'flex' : 'none';
+  document.getElementById('slideTab').style.display = tab === 'slide' ? 'flex' : 'none';
   document.getElementById('contentTab').style.display = tab === 'content' ? 'flex' : 'none';
   if (tab === 'content') loadContent();
-  if (tab === 'preview' && currentSlide) selectSlide(currentSlide);
+  if (tab === 'slide') requestAnimationFrame(fitPreviewFrame);
 }
 
 async function buildPptx() {
@@ -341,11 +407,14 @@ function fitPreviewFrame() {
   const pad = 16;
   const cw = container.clientWidth - pad;
   const ch = container.clientHeight - pad;
-  const scale = Math.max(Math.min(cw / 720, ch / 405), 0.1);
+  const scale = Math.max(Math.min(cw / 960, ch / 540), 0.1);
   frame.style.transform = 'scale(' + scale + ')';
 }
 
 window.addEventListener('resize', fitPreviewFrame);
+
+document.getElementById('homeLink').addEventListener('click', (e) => { if (!confirmDiscardIfDirty()) e.preventDefault(); });
+document.getElementById('dashboardLink').addEventListener('click', (e) => { if (!confirmDiscardIfDirty()) e.preventDefault(); });
 
 loadNavUser();
 loadProject();
