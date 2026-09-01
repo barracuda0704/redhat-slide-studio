@@ -6,11 +6,31 @@ import mimetypes
 import shutil
 import subprocess
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 REDHAT_REL_RE = re.compile(r'(href|src)="\.\./\.\./\.\./\.\./redhat/([^"]+)"')
 ASSET_REL_RE = re.compile(r'src="assets/([^"]+)"')
+REDHAT_URL_RE = re.compile(r"url\(\s*['\"]?\.\./\.\./\.\./\.\./redhat/([^'\")]+)['\"]?\s*\)")
+ASSET_URL_RE = re.compile(r"url\(\s*['\"]?assets/([^'\")]+)['\"]?\s*\)")
+BLANK_SLIDE_TEMPLATE = """<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../../../redhat/theme.css">
+<style>
+body { background: #ffffff; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; word-break: keep-all; }
+h1 { color: #ee0000; font-size: 22pt; font-weight: 700; margin: 0 0 8pt 0; }
+p { color: #4d4d4d; font-size: 12pt; margin: 0; }
+</style>
+</head>
+<body>
+<h1>새 슬라이드</h1>
+<p>여기에 내용을 입력하세요.</p>
+</body>
+</html>
+"""
 
 # Project/version/filename come straight from URL path params — never trust
 # them as path components without validation (e.g. name="..") reaches
@@ -51,6 +71,19 @@ class ProjectManager:
         self.engine_dir = Path(engine_dir)
         self.projects_dir = self.engine_dir / "projects"
         self.projects_dir.mkdir(parents=True, exist_ok=True)
+        self._locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _lock_for(self, name: str) -> threading.Lock:
+        # Per-project lock so a double-clicked build/save/generate can't
+        # interleave its project.json read-modify-write with another request
+        # for the same project (separate projects never contend).
+        with self._locks_guard:
+            lock = self._locks.get(name)
+            if lock is None:
+                lock = threading.Lock()
+                self._locks[name] = lock
+            return lock
 
     def _project_dir(self, name: str) -> Path:
         return self.projects_dir / _validate_name(name)
@@ -153,23 +186,38 @@ class ProjectManager:
         return p.read_text("utf-8")
 
     def save_content(self, name: str, content: str, version: str = "v1.0"):
-        p = self._version_dir(name, version) / "content.md"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, "utf-8")
-        meta = self._load_meta(name, version)
-        if meta:
-            meta["updated"] = self._now_iso()
-            self._save_meta(name, meta, version)
+        with self._lock_for(name):
+            p = self._version_dir(name, version) / "content.md"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, "utf-8")
+            meta = self._load_meta(name, version)
+            if meta:
+                meta["updated"] = self._now_iso()
+                self._save_meta(name, meta, version)
+
+    def _backup_dir(self, name: str, version: str = "v1.0") -> Path:
+        d = self._version_dir(name, version) / ".backups"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
     def save_slide_html(self, name: str, filename: str, html: str, version: str = "v1.0"):
-        html_dir = self._version_dir(name, version) / "html"
-        html_dir.mkdir(parents=True, exist_ok=True)
-        (html_dir / _validate_filename(filename)).write_text(html, "utf-8")
-        meta = self._load_meta(name, version)
-        if meta:
-            meta["updated"] = self._now_iso()
-            meta["slides"] = len(list(html_dir.glob("slide*.html")))
-            self._save_meta(name, meta, version)
+        filename = _validate_filename(filename)
+        with self._lock_for(name):
+            html_dir = self._version_dir(name, version) / "html"
+            html_dir.mkdir(parents=True, exist_ok=True)
+            target = html_dir / filename
+            if target.exists():
+                # One-level undo: snapshot the pre-overwrite content in a
+                # sibling .backups/ dir — NOT html/, so build.js's own
+                # slide*.html glob (which it also uses in list_slides()) can
+                # never pick a backup up as a real slide.
+                (self._backup_dir(name, version) / filename).write_text(target.read_text("utf-8"), "utf-8")
+            target.write_text(html, "utf-8")
+            meta = self._load_meta(name, version)
+            if meta:
+                meta["updated"] = self._now_iso()
+                meta["slides"] = len(list(html_dir.glob("slide*.html")))
+                self._save_meta(name, meta, version)
 
     def get_slide_html(self, name: str, filename: str, version: str = "v1.0") -> str:
         p = self._version_dir(name, version) / "html" / _validate_filename(filename)
@@ -177,19 +225,97 @@ class ProjectManager:
             raise ValueError(f"슬라이드 '{filename}'을 찾을 수 없습니다.")
         return p.read_text("utf-8")
 
+    def has_slide_backup(self, name: str, filename: str, version: str = "v1.0") -> bool:
+        return (self._backup_dir(name, version) / _validate_filename(filename)).exists()
+
+    def restore_slide_backup(self, name: str, filename: str, version: str = "v1.0") -> str:
+        backup_path = self._backup_dir(name, version) / _validate_filename(filename)
+        if not backup_path.exists():
+            raise ValueError("되돌릴 이전 버전이 없습니다.")
+        html = backup_path.read_text("utf-8")
+        self.save_slide_html(name, filename, html, version)  # snapshots current (bad) state, restores the good one
+        return html
+
     def list_slides(self, name: str, version: str = "v1.0") -> list[str]:
         html_dir = self._version_dir(name, version) / "html"
         if not html_dir.exists():
             return []
         return sorted([f.name for f in html_dir.glob("slide*.html")])
 
+    def delete_slide(self, name: str, filename: str, version: str = "v1.0"):
+        filename = _validate_filename(filename)
+        with self._lock_for(name):
+            html_dir = self._version_dir(name, version) / "html"
+            p = html_dir / filename
+            if not p.exists():
+                raise ValueError(f"슬라이드 '{filename}'을 찾을 수 없습니다.")
+            p.unlink()
+            meta = self._load_meta(name, version)
+            if meta:
+                meta["updated"] = self._now_iso()
+                meta["slides"] = len(list(html_dir.glob("slide*.html")))
+                self._save_meta(name, meta, version)
+
+    def add_blank_slide(self, name: str, version: str = "v1.0") -> str:
+        with self._lock_for(name):
+            html_dir = self._version_dir(name, version) / "html"
+            html_dir.mkdir(parents=True, exist_ok=True)
+            nums = [int(m.group(1)) for f in html_dir.glob("slide*.html") if (m := re.match(r'slide(\d+)', f.name))]
+            next_num = (max(nums) + 1) if nums else 1
+            filename = f"slide{next_num:02d}-new.html"
+            (html_dir / filename).write_text(BLANK_SLIDE_TEMPLATE, "utf-8")
+            meta = self._load_meta(name, version)
+            if meta:
+                meta["updated"] = self._now_iso()
+                meta["slides"] = len(list(html_dir.glob("slide*.html")))
+                self._save_meta(name, meta, version)
+            return filename
+
+    def reorder_slides(self, name: str, order: list[str], version: str = "v1.0") -> list[str]:
+        order = [_validate_filename(f) for f in order]
+        with self._lock_for(name):
+            html_dir = self._version_dir(name, version) / "html"
+            existing = {f.name for f in html_dir.glob("slide*.html")}
+            if set(order) != existing:
+                raise ValueError("전달된 슬라이드 목록이 현재 슬라이드 목록과 일치하지 않습니다.")
+
+            # Two-pass rename so renumbering never overwrites a file that
+            # hasn't been moved out of the way yet.
+            temp_pairs = []
+            for i, old_name in enumerate(order):
+                tmp = html_dir / f".reorder-tmp-{i}.html"
+                (html_dir / old_name).rename(tmp)
+                temp_pairs.append((tmp, old_name))
+
+            new_order = []
+            for i, (tmp, old_name) in enumerate(temp_pairs):
+                m = re.match(r'slide\d+-(.+)\.html$', old_name)
+                slug = m.group(1) if m else "slide"
+                new_name = f"slide{i + 1:02d}-{slug}.html"
+                tmp.rename(html_dir / new_name)
+                new_order.append(new_name)
+
+            meta = self._load_meta(name, version)
+            if meta:
+                meta["updated"] = self._now_iso()
+                self._save_meta(name, meta, version)
+            return new_order
+
+    def save_asset(self, name: str, filename: str, data: bytes, version: str = "v1.0") -> str:
+        safe_name = _validate_asset_filename(filename)
+        assets_dir = self._version_dir(name, version) / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        (assets_dir / safe_name).write_bytes(data)
+        return safe_name
+
     def build_pptx(self, name: str, version: str = "v1.0") -> str:
         _validate_name(name)
         _validate_version(version)
-        meta = self._load_meta(name, version)
-        if meta:
-            meta["status"] = "building"
-            self._save_meta(name, meta, version)
+        with self._lock_for(name):
+            meta = self._load_meta(name, version)
+            if meta:
+                meta["status"] = "building"
+                self._save_meta(name, meta, version)
         try:
             result = subprocess.run(
                 ["node", str(self.engine_dir / "scripts" / "build.js"), name, version],
@@ -285,8 +411,20 @@ class ProjectManager:
             p = assets_dir / m.group(1)
             return f'src="{self._file_to_data_uri(p)}"' if p.exists() else m.group(0)
 
+        def repl_redhat_url(m):
+            p = self.engine_dir / "redhat" / m.group(1)
+            return f"url('{self._file_to_data_uri(p)}')" if p.exists() else m.group(0)
+
+        def repl_asset_url(m):
+            p = assets_dir / m.group(1)
+            return f"url('{self._file_to_data_uri(p)}')" if p.exists() else m.group(0)
+
         html = REDHAT_REL_RE.sub(repl_redhat, html)
         html = ASSET_REL_RE.sub(repl_asset, html)
+        # Also catch background-image: url('assets/...') / url('../../../../redhat/...')
+        # inside a slide's own <style> block, not just href/src attributes.
+        html = REDHAT_URL_RE.sub(repl_redhat_url, html)
+        html = ASSET_URL_RE.sub(repl_asset_url, html)
         return html
 
     def export_html(self, name: str, version: str = "v1.0") -> str:

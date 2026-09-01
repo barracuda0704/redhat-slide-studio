@@ -19,6 +19,15 @@ def _get_client():
         return Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 
+def _create_message(client, **kwargs):
+    # The SDK requires streaming once max_tokens is high enough that a
+    # response could plausibly take >10 minutes — true for our
+    # MAX_OUTPUT_TOKENS. Stream and collect the final message so callers
+    # keep using response.content[0].text / response.stop_reason as before.
+    with client.messages.stream(**kwargs) as stream:
+        return stream.get_final_message()
+
+
 def _load_theme_css(engine_dir: str) -> str:
     p = Path(engine_dir) / "redhat" / "theme.css"
     return p.read_text("utf-8") if p.exists() else ""
@@ -149,7 +158,7 @@ def generate_content(topic: str, num_slides: int = 8, description: str = "") -> 
     if description:
         user_msg += f"\n추가 설명: {description}"
 
-    response = client.messages.create(
+    response = _create_message(client,
         model=settings.MODEL_NAME,
         max_tokens=settings.MAX_OUTPUT_TOKENS,
         system=_content_system(_today_kr()),
@@ -163,7 +172,21 @@ def generate_content(topic: str, num_slides: int = 8, description: str = "") -> 
     return response.content[0].text
 
 
-def generate_slides_html(content_md: str, theme: str = "redhat-enterprise") -> tuple[list[dict], bool]:
+def _split_content_by_slide(content_md: str) -> tuple[str, list[str]]:
+    """Split content.md into (preamble, [per-slide chunk, ...]) on '## Slide N:' boundaries."""
+    parts = re.split(r'(?=^##\s*Slide\s+\d+:)', content_md, flags=re.MULTILINE)
+    preamble = parts[0] if parts else ""
+    slide_parts = [p for p in parts[1:] if p.strip()]
+    if not slide_parts:
+        # no recognizable slide headers — treat the whole thing as one batch
+        return "", [content_md]
+    return preamble, slide_parts
+
+
+def generate_slides_html_batches(content_md: str, theme: str = "redhat-enterprise", batch_size: int = 6):
+    """Yield (slides, truncated) per batch instead of one giant completion for
+    the whole deck — a 20-slide request in one call risks running out of
+    max_tokens mid-slide; each batch gets its own full token budget instead."""
     engine_dir = settings.ENGINE_DIR
     theme_css = _load_theme_css(engine_dir)
     icon_list = _load_icon_list(engine_dir)
@@ -172,16 +195,92 @@ def generate_slides_html(content_md: str, theme: str = "redhat-enterprise") -> t
     client = _get_client()
     system = _build_slide_system(theme_css, icon_list, theme_guide)
 
-    response = client.messages.create(
+    preamble, slide_parts = _split_content_by_slide(content_md)
+    slide_counter = 0  # authoritative numbering — never trust the model's own count
+
+    for i in range(0, len(slide_parts), batch_size):
+        batch = slide_parts[i:i + batch_size]
+        batch_md = f"{preamble}\n\n{''.join(batch)}" if preamble else "".join(batch)
+        response = _create_message(client,
+            model=settings.MODEL_NAME,
+            max_tokens=settings.MAX_OUTPUT_TOKENS,
+            system=system,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"다음 content.md에 있는 슬라이드들의 HTML을 작성하세요 (이번 배치 {len(batch)}개 슬라이드):\n\n{batch_md}"
+                ),
+            }],
+        )
+        text = response.content[0].text
+        raw_slides = _parse_slides(text)
+
+        # Each batch is a stateless call with no memory of other batches' own
+        # slide numbering, and the model can still miscount within a batch
+        # (observed: two slides both named slide07-*). Renumber sequentially
+        # here instead of trusting whatever number the model put in its own
+        # "### slideNN-slug" header — only the descriptive slug is kept.
+        slides = []
+        for s in raw_slides:
+            slide_counter += 1
+            m = re.match(r'slide\d+-(.+)\.html$', s["filename"])
+            slug = m.group(1) if m else "slide"
+            slides.append({"filename": f"slide{slide_counter:02d}-{slug}.html", "html": s["html"]})
+
+        truncated = response.stop_reason == "max_tokens"
+        yield slides, truncated
+        if truncated:
+            return  # this batch already hit the limit; further batches would too
+
+
+def _edit_system(theme_css: str) -> str:
+    return f"""당신은 Red Hat 슬라이드 HTML 편집 전문가입니다. 사용자가 기존 슬라이드에 대해 요청한
+수정사항을 반영한 완성된 HTML을 출력합니다.
+
+오늘 날짜는 {_today_kr()}입니다.
+
+## 규칙
+- 기존 슬라이드의 전체 구조·스타일·클래스명을 최대한 유지하고, 요청된 부분만 정확히 수정하세요.
+- 요청과 무관한 내용은 임의로 바꾸지 마세요.
+- word-break: keep-all (한글 텍스트) 유지.
+
+## PPTX 변환 필수 규칙 (위반하면 이 슬라이드가 PPTX 빌드에서 통째로 누락됩니다)
+1. 모든 글자는 반드시 `<p>`, `<h1>~<h6>`, `<ul>`, `<ol>` 태그 안에만 있어야 합니다. `<div>`, `<span>`
+   바로 밑에 텍스트를 직접 두지 마세요.
+2. `<h1>~<h6>`, `<p>`, `<ul>`, `<ol>`, `<li>` 태그 자체에는 background, border, box-shadow를 적용하지
+   마세요 — 감싸는 `<div>`에 적용하세요.
+3. `<div>`에 background-image나 그라디언트를 쓰지 마세요.
+4. 본문이 720×405pt 캔버스(패딩 제외 실사용 335pt 세로)를 넘지 않도록 하세요.
+
+## 참고 theme.css
+```css
+{theme_css}
+```
+
+## 출력 형식
+설명 없이 완성된 HTML 전체만 아래처럼 코드 블록 하나로 출력하세요.
+```html
+<!DOCTYPE html>
+...
+```
+"""
+
+
+def apply_edit_instruction(html: str, instruction: str) -> str:
+    theme_css = _load_theme_css(settings.ENGINE_DIR)
+    client = _get_client()
+    response = _create_message(client,
         model=settings.MODEL_NAME,
         max_tokens=settings.MAX_OUTPUT_TOKENS,
-        system=system,
-        messages=[{"role": "user", "content": f"다음 content.md를 기반으로 각 슬라이드의 HTML을 작성하세요:\n\n{content_md}"}],
+        system=_edit_system(theme_css),
+        messages=[{
+            "role": "user",
+            "content": f"현재 슬라이드 HTML:\n```html\n{html}\n```\n\n수정 요청: {instruction}",
+        }],
     )
     text = response.content[0].text
-    slides = _parse_slides(text)
-    truncated = response.stop_reason == "max_tokens"
-    return slides, truncated
+    m = re.search(r'```html\s*\n(.*?)```', text, re.DOTALL)
+    return m.group(1).strip() if m else text.strip()
 
 
 def _parse_slides(text: str) -> list[dict]:

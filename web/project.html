@@ -34,6 +34,19 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .slide-list-item.active { background: var(--rh-red-tint); border-left-color: var(--rh-red); color: var(--text); }
 .slide-num { font-weight: 700; color: var(--rh-red); min-width: 24px; text-align: center; font-size: 12px; }
 .slide-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.slide-actions { display: flex; gap: 2px; flex-shrink: 0; opacity: 0; transition: opacity .15s; }
+.slide-list-item:hover .slide-actions, .slide-list-item.active .slide-actions { opacity: 1; }
+.slide-action-btn {
+  width: 18px; height: 18px; border: none; background: transparent; color: var(--text-muted);
+  font-size: 12px; cursor: pointer; border-radius: 3px; display: flex; align-items: center;
+  justify-content: center; padding: 0; line-height: 1; flex-shrink: 0;
+}
+.slide-action-btn:hover { background: rgba(0,0,0,.08); color: var(--text); }
+.slide-action-btn:disabled { opacity: .3; cursor: default; }
+.slide-action-btn:disabled:hover { background: transparent; color: var(--text-muted); }
+.slide-action-btn.slide-action-danger:hover { background: var(--danger-bg); color: var(--danger); }
+.sidebar-add-slide { padding: 8px 16px 4px; }
+.sidebar-add-slide button { width: 100%; justify-content: center; font-size: 12px; padding: 6px 10px; }
 
 .slide-main { height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; background: var(--surface-card); }
 .toolbar {
@@ -88,7 +101,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
 }
 .html-dirty-dot.show { display: inline-block; }
 .html-accordion-actions { margin-left: auto; display: flex; gap: 8px; }
-.html-accordion-body { display: none; flex-direction: column; gap: 8px; height: 320px; padding: 12px 16px; box-sizing: border-box; }
+.html-accordion-body { display: none; flex-direction: column; gap: 8px; height: 400px; padding: 12px 16px; box-sizing: border-box; }
 .html-accordion.open .html-accordion-body { display: flex; }
 .html-accordion-body .CodeMirror {
   flex: 1; min-height: 0; height: 100%; width: 100%;
@@ -96,6 +109,14 @@ main.content { flex: 1; min-height: 0; display: flex; }
   font-family: 'Red Hat Mono', monospace; font-size: 12px; line-height: 1.5;
 }
 .html-accordion-body .CodeMirror-activeline-background { background: var(--rh-red-tint); }
+.html-toolbar { flex-shrink: 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.html-toolbar .btn { font-size: 12px; padding: 5px 10px; }
+.ai-edit-row { flex-shrink: 0; display: flex; gap: 8px; }
+.ai-edit-row input[type="text"] {
+  flex: 1; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border-strong);
+  border-radius: 4px; font-size: 12px; font-family: inherit; margin: 0;
+}
+.ai-edit-row .btn { font-size: 12px; padding: 7px 14px; flex-shrink: 0; }
 
 .content-editor { flex: 1; min-height: 0; display: none; flex-direction: column; }
 .content-editor textarea {
@@ -132,6 +153,12 @@ main.content { flex: 1; min-height: 0; display: flex; }
         <div style="font-size:11px; color:var(--text-muted);" id="slideCount">0장</div>
       </div>
       <div id="slideList"></div>
+      <div class="sidebar-add-slide">
+        <button class="btn btn-sm" onclick="addBlankSlide()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          새 슬라이드
+        </button>
+      </div>
     </div>
 
     <!-- Main area -->
@@ -183,7 +210,17 @@ main.content { flex: 1; min-height: 0; display: flex; }
             </div>
           </div>
           <div class="html-accordion-body">
+            <div class="html-toolbar">
+              <button class="btn" id="undoBtn" onclick="restoreSlideBackup()" disabled title="마지막 저장 이전 버전으로 되돌리기">되돌리기</button>
+              <label class="btn" for="assetUploadInput" style="cursor:pointer;">이미지 업로드</label>
+              <input type="file" id="assetUploadInput" accept="image/*" style="display:none">
+              <button class="btn" id="imageGenBtn" onclick="showImageGenStub()" title="이미지 생성 (준비 중)">🎨 이미지 생성</button>
+            </div>
             <textarea id="htmlEditor" spellcheck="false"></textarea>
+            <div class="ai-edit-row">
+              <input type="text" id="aiEditInput" placeholder="AI에게 수정 요청 (예: 제목을 더 크게 해줘)">
+              <button class="btn btn-primary" id="aiEditBtn" onclick="applyAiEdit()">AI 수정</button>
+            </div>
           </div>
         </div>
       </div>
@@ -293,8 +330,19 @@ async function loadProject() {
   slides.forEach((s, i) => {
     const item = document.createElement('div');
     item.className = 'slide-list-item' + (currentSlide === s ? ' active' : '');
-    item.innerHTML = '<span class="slide-num">' + (i+1) + '</span><span class="slide-name">' + s.replace('.html','') + '</span>';
+    item.innerHTML =
+      '<span class="slide-num">' + (i+1) + '</span>' +
+      '<span class="slide-name">' + s.replace('.html','') + '</span>' +
+      '<span class="slide-actions">' +
+        '<button class="slide-action-btn" title="위로"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+        '<button class="slide-action-btn" title="아래로"' + (i === slides.length - 1 ? ' disabled' : '') + '>↓</button>' +
+        '<button class="slide-action-btn slide-action-danger" title="삭제">×</button>' +
+      '</span>';
     item.onclick = () => selectSlide(s);
+    const [upBtn, downBtn, delBtn] = item.querySelectorAll('.slide-action-btn');
+    upBtn.onclick = (e) => moveSlide(i, -1, e);
+    downBtn.onclick = (e) => moveSlide(i, 1, e);
+    delBtn.onclick = (e) => deleteSlide(s, e);
     list.appendChild(item);
   });
 
@@ -358,7 +406,142 @@ async function selectSlide(filename) {
     htmlCM.clearHistory();
     renderPreview(data.html);
   }
+  checkSlideBackup(filename);
 }
+
+async function checkSlideBackup(filename) {
+  const undoBtn = document.getElementById('undoBtn');
+  try {
+    const res = await fetch('/api/projects/' + projectName + '/slides/' + filename + '/backup');
+    const data = await res.json();
+    undoBtn.disabled = !(res.ok && data.has_backup);
+  } catch(e) {
+    undoBtn.disabled = true;
+  }
+}
+
+async function restoreSlideBackup() {
+  if (!currentSlide) return;
+  if (!confirm('마지막 저장 이전 버전으로 되돌립니다. 지금 편집 중인 내용은 사라집니다. 계속하시겠습니까?')) return;
+  const res = await fetch('/api/projects/' + projectName + '/slides/' + currentSlide + '/restore', {method: 'POST'});
+  if (res.ok) {
+    const data = await res.json();
+    originalHtml = data.html;
+    htmlCM.setValue(data.html);
+    setDirty(false);
+    renderPreview(data.html);
+    showToast('이전 버전으로 되돌렸습니다.');
+  } else {
+    showToast('되돌리기 실패', true);
+  }
+}
+
+async function deleteSlide(filename, event) {
+  if (event) event.stopPropagation();
+  if (!confirm('"' + filename.replace('.html','') + '" 슬라이드를 삭제하시겠습니까?')) return;
+  const res = await fetch('/api/projects/' + projectName + '/slides/' + filename, {method: 'DELETE'});
+  if (res.ok) {
+    if (currentSlide === filename) currentSlide = null;
+    showToast('슬라이드를 삭제했습니다.');
+    await loadProject();
+  } else {
+    showToast('삭제 실패', true);
+  }
+}
+
+async function addBlankSlide() {
+  if (!confirmDiscardIfDirty()) return;
+  const res = await fetch('/api/projects/' + projectName + '/slides', {method: 'POST'});
+  if (res.ok) {
+    const data = await res.json();
+    currentSlide = null;
+    await loadProject();
+    selectSlide(data.filename);
+    showToast('새 슬라이드를 추가했습니다.');
+  } else {
+    showToast('추가 실패', true);
+  }
+}
+
+async function moveSlide(index, direction, event) {
+  if (event) event.stopPropagation();
+  const slides = (project.slides || []).slice();
+  const toIndex = index + direction;
+  if (toIndex < 0 || toIndex >= slides.length) return;
+  const wasCurrent = slides[index] === currentSlide;
+  const tmp = slides[index];
+  slides[index] = slides[toIndex];
+  slides[toIndex] = tmp;
+
+  const res = await fetch('/api/projects/' + projectName + '/slides/reorder', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({order: slides}),
+  });
+  if (!res.ok) { showToast('순서 변경 실패', true); return; }
+  const data = await res.json();
+  const newCurrent = wasCurrent ? data.order[toIndex] : null;
+  currentSlide = null;
+  await loadProject();
+  if (newCurrent) selectSlide(newCurrent);
+}
+
+function showImageGenStub() {
+  showToast('이미지 생성 기능은 준비 중입니다.');
+}
+
+async function applyAiEdit() {
+  if (!currentSlide) return;
+  const input = document.getElementById('aiEditInput');
+  const instruction = input.value.trim();
+  if (!instruction) return;
+
+  const btn = document.getElementById('aiEditBtn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = '적용 중...';
+  try {
+    const res = await fetch('/api/projects/' + projectName + '/slides/' + currentSlide + '/ai-edit', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({instruction}),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      htmlCM.setValue(data.html); // fires 'change' -> onHtmlInput() marks dirty since it differs from originalHtml
+      renderPreview(data.html);
+      input.value = '';
+      showToast('AI 수정 결과를 반영했습니다. 확인 후 저장하세요.');
+    } else {
+      showToast('AI 수정 실패: ' + (data.detail || ''), true);
+    }
+  } catch(e) {
+    showToast('AI 수정 오류: ' + e.message, true);
+  }
+  btn.disabled = false;
+  btn.textContent = original;
+}
+
+document.getElementById('aiEditInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); applyAiEdit(); }
+});
+
+document.getElementById('assetUploadInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!currentSlide) { showToast('먼저 슬라이드를 선택하세요.', true); e.target.value = ''; return; }
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/api/projects/' + projectName + '/assets', {method: 'POST', body: formData});
+  if (res.ok) {
+    const data = await res.json();
+    htmlCM.replaceSelection('<img src="assets/' + data.filename + '" alt="">');
+    showToast('업로드 완료 — 커서 위치에 <img> 태그를 삽입했습니다.');
+  } else {
+    showToast('업로드 실패', true);
+  }
+  e.target.value = '';
+});
 
 async function saveSlideHtml() {
   if (!currentSlide) return;

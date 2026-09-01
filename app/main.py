@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -296,27 +296,41 @@ class GenerateRequest(BaseModel):
     description: str = ""
     num_slides: int = 8
     theme: str = "redhat-enterprise"
+    content_md: str | None = None  # skip AI outline generation, use this markdown as-is
 
 
-def _run_generation(name: str, topic: str, description: str, num_slides: int, theme: str):
+def _run_generation(name: str, topic: str, description: str, num_slides: int, theme: str, content_md: str | None = None):
     from . import generator
     meta = project_manager._load_meta(name)
     if meta:
         meta["status"] = "generating"
         project_manager._save_meta(name, meta)
     try:
-        content = generator.generate_content(topic, num_slides, description)
+        content = content_md if content_md else generator.generate_content(topic, num_slides, description)
         project_manager.save_content(name, content)
-        slides, truncated = generator.generate_slides_html(content, theme)
-        for s in slides:
-            project_manager.save_slide_html(name, s["filename"], s["html"])
+
+        total_saved = 0
+        any_truncated = False
+        # Generated (and saved) in batches rather than one giant completion —
+        # each batch gets its own full max_tokens budget, so a 20-slide deck
+        # can't run out of output length mid-slide the way a single call could.
+        for batch_slides, truncated in generator.generate_slides_html_batches(content, theme):
+            for s in batch_slides:
+                project_manager.save_slide_html(name, s["filename"], s["html"])
+                total_saved += 1
+            any_truncated = any_truncated or truncated
+            meta = project_manager._load_meta(name)
+            if meta:
+                meta["slides"] = total_saved
+                project_manager._save_meta(name, meta)
+
         meta = project_manager._load_meta(name)
         if meta:
             meta["status"] = "completed"
-            meta["slides"] = len(slides)
-            if truncated:
+            meta["slides"] = total_saved
+            if any_truncated:
                 meta["generation_warning"] = (
-                    f"AI 응답이 출력 길이 제한에 걸려 요청한 {num_slides}장 중 {len(slides)}장만 "
+                    f"AI 응답이 출력 길이 제한에 걸려 요청한 {num_slides}장 중 {total_saved}장만 "
                     f"생성되었습니다. 슬라이드 수를 줄여 다시 생성하거나, 나머지는 직접 추가하세요."
                 )
             else:
@@ -337,7 +351,10 @@ async def api_generate(name: str, body: GenerateRequest, bg: BackgroundTasks, us
     except ValueError as e:
         raise HTTPException(404, str(e))
     topic = body.topic or project.get("title", name)
-    bg.add_task(_run_generation, name, topic, body.description or project.get("description", ""), body.num_slides, body.theme or project.get("theme", "redhat-enterprise"))
+    bg.add_task(
+        _run_generation, name, topic, body.description or project.get("description", ""),
+        body.num_slides, body.theme or project.get("theme", "redhat-enterprise"), body.content_md,
+    )
     return {"status": "generating", "message": "AI가 슬라이드를 생성하고 있습니다."}
 
 
@@ -362,8 +379,76 @@ class SlideUpdate(BaseModel):
 
 @app.put("/api/projects/{name}/slides/{filename}")
 async def api_save_slide(name: str, filename: str, body: SlideUpdate, _: User = Depends(get_current_user)):
-    project_manager.save_slide_html(name, filename, body.html)
+    try:
+        project_manager.save_slide_html(name, filename, body.html)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return {"status": "saved"}
+
+
+@app.delete("/api/projects/{name}/slides/{filename}")
+async def api_delete_slide(name: str, filename: str, _: User = Depends(get_current_user)):
+    try:
+        project_manager.delete_slide(name, filename)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {"status": "deleted"}
+
+
+@app.post("/api/projects/{name}/slides")
+async def api_add_blank_slide(name: str, _: User = Depends(get_current_user)):
+    try:
+        filename = project_manager.add_blank_slide(name)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {"filename": filename}
+
+
+class ReorderRequest(BaseModel):
+    order: list[str]
+
+
+@app.post("/api/projects/{name}/slides/reorder")
+async def api_reorder_slides(name: str, body: ReorderRequest, _: User = Depends(get_current_user)):
+    try:
+        new_order = project_manager.reorder_slides(name, body.order)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"order": new_order}
+
+
+@app.get("/api/projects/{name}/slides/{filename}/backup")
+async def api_has_slide_backup(name: str, filename: str, _: User = Depends(get_current_user)):
+    try:
+        return {"has_backup": project_manager.has_slide_backup(name, filename)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/projects/{name}/slides/{filename}/restore")
+async def api_restore_slide(name: str, filename: str, _: User = Depends(get_current_user)):
+    try:
+        html = project_manager.restore_slide_backup(name, filename)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {"html": html}
+
+
+class AiEditRequest(BaseModel):
+    instruction: str
+
+
+@app.post("/api/projects/{name}/slides/{filename}/ai-edit")
+async def api_ai_edit_slide(name: str, filename: str, body: AiEditRequest, _: User = Depends(get_current_user)):
+    from . import generator
+    try:
+        html = project_manager.get_slide_html(name, filename)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    if not body.instruction.strip():
+        raise HTTPException(400, "수정 요청 내용을 입력하세요.")
+    new_html = await asyncio.to_thread(generator.apply_edit_instruction, html, body.instruction)
+    return {"html": new_html}
 
 
 @app.get("/api/projects/{name}/slides/{filename}/preview", response_class=HTMLResponse)
@@ -435,10 +520,23 @@ async def api_export_pdf_download(name: str, _: User = Depends(get_current_user)
 
 @app.get("/api/projects/{name}/assets/{filename:path}")
 async def api_asset(name: str, filename: str):
-    asset_path = project_manager.get_asset_path(name, filename)
+    try:
+        asset_path = project_manager.get_asset_path(name, filename)
+    except ValueError:
+        raise HTTPException(404)
     if not asset_path:
         raise HTTPException(404)
     return FileResponse(asset_path)
+
+
+@app.post("/api/projects/{name}/assets")
+async def api_upload_asset(name: str, file: UploadFile = File(...), _: User = Depends(get_current_user)):
+    data = await file.read()
+    try:
+        saved_name = project_manager.save_asset(name, file.filename or "upload.png", data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"filename": saved_name}
 
 
 # ── Themes API ──
