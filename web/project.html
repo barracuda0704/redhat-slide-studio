@@ -50,6 +50,47 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .sidebar-add-slide { padding: 8px 16px 4px; }
 .sidebar-add-slide button { width: 100%; justify-content: center; font-size: 12px; padding: 6px 10px; }
 
+.slide-list-item[draggable="true"] { cursor: grab; }
+.slide-list-item.dragging { opacity: .4; }
+.slide-list-item.drag-over-top { box-shadow: inset 0 2px 0 0 var(--rh-red); }
+.slide-list-item.drag-over-bottom { box-shadow: inset 0 -2px 0 0 var(--rh-red); }
+
+.slide-insert-zone {
+  height: 6px; margin: -3px 0; position: relative; z-index: 2; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.slide-insert-zone::before {
+  content: ''; position: absolute; left: 16px; right: 16px; top: 50%; height: 2px;
+  background: var(--rh-red); transform: translateY(-50%); opacity: 0; transition: opacity .12s;
+}
+.slide-insert-zone .zone-plus {
+  display: none; width: 16px; height: 16px; border-radius: 50%; background: var(--rh-red);
+  color: #fff; font-size: 12px; line-height: 1; align-items: center; justify-content: center;
+}
+.slide-insert-zone:hover { height: 20px; }
+.slide-insert-zone:hover::before { opacity: 1; }
+.slide-insert-zone:hover .zone-plus { display: flex; }
+
+.present-overlay {
+  display: none; position: fixed; inset: 0; z-index: 5000; background: #000;
+  align-items: center; justify-content: center;
+}
+.present-overlay.open { display: flex; }
+.present-overlay iframe { width: 100%; height: 100%; border: none; background: #fff; }
+.present-close, .present-nav {
+  position: absolute; z-index: 5001; background: rgba(255,255,255,.12); color: #fff; border: none;
+  border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.present-close:hover, .present-nav:hover { background: rgba(255,255,255,.25); }
+.present-close { top: 20px; right: 20px; width: 36px; height: 36px; font-size: 16px; }
+.present-nav { top: 50%; transform: translateY(-50%); width: 48px; height: 48px; font-size: 26px; }
+.present-prev { left: 20px; }
+.present-next { right: 20px; }
+.present-counter {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 5001;
+  color: #fff; font-size: 13px; background: rgba(255,255,255,.12); padding: 4px 12px; border-radius: 12px;
+}
+
 .slide-main { height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; background: var(--surface-card); }
 .toolbar {
   flex-shrink: 0;
@@ -206,6 +247,10 @@ main.content { flex: 1; min-height: 0; display: flex; }
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
           PDF 내보내기
         </button>
+        <button class="btn" id="presentBtn" onclick="enterPresentMode()" disabled title="프레젠테이션 모드 (F)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          프레젠테이션
+        </button>
         <button class="btn btn-danger" onclick="deleteProject()">삭제</button>
       </div>
 
@@ -272,6 +317,14 @@ main.content { flex: 1; min-height: 0; display: flex; }
     </div>
   </div>
 </main>
+
+<div class="present-overlay" id="presentOverlay">
+  <button class="present-close" onclick="exitPresentMode()" title="닫기 (Esc)">✕</button>
+  <button class="present-nav present-prev" onclick="presentStep(-1)" title="이전 (←)">‹</button>
+  <iframe id="presentFrame" scrolling="no"></iframe>
+  <button class="present-nav present-next" onclick="presentStep(1)" title="다음 (→)">›</button>
+  <div class="present-counter" id="presentCounter"></div>
+</div>
 
 <script>
 const ICON_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>';
@@ -363,6 +416,7 @@ async function loadProject(autoSelect = true) {
   document.getElementById('downloadBtn').disabled = !project.has_pptx;
   document.getElementById('exportHtmlBtn').disabled = !hasSlides;
   document.getElementById('exportPdfBtn').disabled = !hasSlides;
+  document.getElementById('presentBtn').disabled = !hasSlides;
 
   const warningEl = document.getElementById('buildWarning');
   const warningText = project.build_warning || project.generation_warning;
@@ -378,6 +432,7 @@ async function loadProject(autoSelect = true) {
   const list = document.getElementById('slideList');
   list.innerHTML = '';
   slides.forEach((s, i) => {
+    list.appendChild(createInsertZone(i));
     const item = document.createElement('div');
     item.className = 'slide-list-item' + (currentSlide === s ? ' active' : '');
     item.innerHTML =
@@ -393,6 +448,7 @@ async function loadProject(autoSelect = true) {
     upBtn.onclick = (e) => moveSlide(i, -1, e);
     downBtn.onclick = (e) => moveSlide(i, 1, e);
     delBtn.onclick = (e) => deleteSlide(s, e);
+    attachSlideDragHandlers(item, i);
     list.appendChild(item);
   });
 
@@ -946,10 +1002,14 @@ function buildWysiwygOverlayScript(colors) {
 `;
 }
 
-function buildPreviewHtml(rawHtml) {
-  const rewritten = rawHtml
+function rewriteSlidePaths(rawHtml) {
+  return rawHtml
     .replaceAll('../../../../redhat/', '/engine/redhat/')
     .replaceAll('src="assets/', 'src="/api/projects/' + projectName + '/assets/');
+}
+
+function buildPreviewHtml(rawHtml) {
+  const rewritten = rewriteSlidePaths(rawHtml);
   const palette = THEME_COLOR_PALETTES[project && project.theme] || DEFAULT_COLOR_PALETTE;
   const overlayScript = buildWysiwygOverlayScript(palette);
   return rewritten.includes('</body>')
@@ -1081,15 +1141,16 @@ async function addBlankSlide() {
   }
 }
 
-async function moveSlide(index, direction, event) {
-  if (event) event.stopPropagation();
+// Shared by the ↑/↓ buttons, thumbnail drag-and-drop, and insert-at-position
+// — toIndex is the slide's desired FINAL index in the resulting order
+// (standard splice-based array-move semantics), not an index into the
+// pre-move array.
+async function reorderSlideTo(fromIndex, toIndex) {
   if (blockIfAiEditBusy()) return;
   const slides = (project.slides || []).slice();
-  const toIndex = index + direction;
-  if (toIndex < 0 || toIndex >= slides.length) return;
-  const tmp = slides[index];
-  slides[index] = slides[toIndex];
-  slides[toIndex] = tmp;
+  if (fromIndex < 0 || fromIndex >= slides.length || toIndex < 0 || toIndex >= slides.length || fromIndex === toIndex) return;
+  const moved = slides.splice(fromIndex, 1)[0];
+  slides.splice(toIndex, 0, moved);
 
   const res = await fetch('/api/projects/' + projectName + '/slides/reorder', {
     method: 'POST',
@@ -1098,13 +1159,113 @@ async function moveSlide(index, direction, event) {
   });
   if (!res.ok) { showToast('순서 변경 실패', true); return; }
   const data = await res.json();
-  // Always show whichever slide the user just moved (at its new position),
-  // not whatever slide happened to be open before — clicking a ↑/↓ on a
-  // slide that wasn't already open used to leave the old slide showing.
-  const newCurrent = data.order[toIndex];
+  // The server renumbers slideNN-* filenames to stay contiguous, so the
+  // pre-move filename ("moved") may no longer exist afterward — always
+  // resolve the slide to show from the response's fresh order, not the
+  // stale name we moved.
   currentSlide = null;
   await loadProject(false);
-  selectSlide(newCurrent);
+  selectSlide(data.order[toIndex]);
+}
+
+async function moveSlide(index, direction, event) {
+  if (event) event.stopPropagation();
+  await reorderSlideTo(index, index + direction);
+}
+
+let dragSlideIndex = null;
+
+function attachSlideDragHandlers(item, index) {
+  item.draggable = true;
+  item.addEventListener('dragstart', (e) => {
+    dragSlideIndex = index;
+    e.dataTransfer.effectAllowed = 'move';
+    item.classList.add('dragging');
+  });
+  item.addEventListener('dragend', () => {
+    item.classList.remove('dragging');
+    document.querySelectorAll('.slide-list-item').forEach((el) => el.classList.remove('drag-over-top', 'drag-over-bottom'));
+    dragSlideIndex = null;
+  });
+  item.addEventListener('dragover', (e) => {
+    if (dragSlideIndex === null) return;
+    e.preventDefault();
+    const before = (e.clientY - item.getBoundingClientRect().top) < item.offsetHeight / 2;
+    item.classList.toggle('drag-over-top', before);
+    item.classList.toggle('drag-over-bottom', !before);
+  });
+  item.addEventListener('dragleave', () => item.classList.remove('drag-over-top', 'drag-over-bottom'));
+  item.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const before = (e.clientY - item.getBoundingClientRect().top) < item.offsetHeight / 2;
+    item.classList.remove('drag-over-top', 'drag-over-bottom');
+    if (dragSlideIndex === null || dragSlideIndex === index) return;
+    let to = before ? index : index + 1;
+    if (dragSlideIndex < to) to -= 1; // account for the source slot disappearing once removed
+    reorderSlideTo(dragSlideIndex, to);
+  });
+}
+
+function createInsertZone(atIndex) {
+  const zone = document.createElement('div');
+  zone.className = 'slide-insert-zone';
+  zone.title = '여기에 새 슬라이드 삽입';
+  zone.innerHTML = '<span class="zone-plus">+</span>';
+  zone.onclick = (e) => { e.stopPropagation(); insertBlankSlideAt(atIndex); };
+  return zone;
+}
+
+async function insertBlankSlideAt(atIndex) {
+  if (blockIfAiEditBusy()) return;
+  if (!confirmDiscardIfDirty()) return;
+  const res = await fetch('/api/projects/' + projectName + '/slides', {method: 'POST'});
+  if (!res.ok) { showToast('추가 실패', true); return; }
+  const data = await res.json();
+  await loadProject(false); // refresh project.slides so it includes the new (appended) slide
+  const fromIndex = project.slides.indexOf(data.filename);
+  if (fromIndex !== -1 && fromIndex !== atIndex) {
+    await reorderSlideTo(fromIndex, atIndex);
+  } else {
+    selectSlide(data.filename);
+  }
+  showToast('새 슬라이드를 삽입했습니다.');
+}
+
+let presentIndex = 0;
+
+function enterPresentMode() {
+  if (blockIfAiEditBusy()) return;
+  const slides = project && project.slides || [];
+  if (!slides.length) return;
+  presentIndex = Math.max(0, slides.indexOf(currentSlide));
+  document.getElementById('presentOverlay').classList.add('open');
+  renderPresentSlide();
+  const overlay = document.getElementById('presentOverlay');
+  if (overlay.requestFullscreen) overlay.requestFullscreen().catch(() => {});
+}
+
+function exitPresentMode() {
+  document.getElementById('presentOverlay').classList.remove('open');
+  if (document.fullscreenElement) document.exitFullscreen();
+}
+
+function presentStep(delta) {
+  const slides = project && project.slides || [];
+  const next = presentIndex + delta;
+  if (next < 0 || next >= slides.length) return;
+  presentIndex = next;
+  renderPresentSlide();
+}
+
+async function renderPresentSlide() {
+  const slides = project && project.slides || [];
+  const filename = slides[presentIndex];
+  if (!filename) return;
+  document.getElementById('presentCounter').textContent = (presentIndex + 1) + ' / ' + slides.length;
+  const res = await fetch('/api/projects/' + projectName + '/slides/' + filename + '/preview');
+  const html = await res.text();
+  // No WYSIWYG overlay while presenting — just the rewritten asset/theme paths.
+  document.getElementById('presentFrame').srcdoc = rewriteSlidePaths(html);
 }
 
 function showImageGenStub() {
@@ -1192,6 +1353,28 @@ function setNavigationLocked(locked) {
 
 document.getElementById('aiEditInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); applyAiEdit(); }
+});
+
+// Global shortcuts: F to present, arrows/Esc while presenting, Delete to
+// remove the open slide. Disabled while focus is in a text field/CodeMirror
+// so typing "f" or pressing Delete in a text box doesn't get hijacked.
+function isTypingContext() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+}
+document.addEventListener('keydown', (e) => {
+  const presenting = document.getElementById('presentOverlay').classList.contains('open');
+  if (presenting) {
+    if (e.key === 'Escape') { e.preventDefault(); exitPresentMode(); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); presentStep(1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); presentStep(-1); }
+    return;
+  }
+  if (isTypingContext()) return;
+  if (e.key === 'f' || e.key === 'F') { e.preventDefault(); enterPresentMode(); }
+  else if ((e.key === 'Delete' || e.key === 'Backspace') && currentSlide) { e.preventDefault(); deleteSlide(currentSlide); }
 });
 
 document.getElementById('assetUploadInput').addEventListener('change', async (e) => {
