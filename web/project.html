@@ -465,14 +465,26 @@ const WYSIWYG_OVERLAY_SCRIPT = `
   }
   #__wysiwyg_toolbar button:hover { background: #ee0000; }
   #__wysiwyg_toolbar .wt-label { color: #9aa0a6; padding: 0 2px; }
-  #__wysiwyg_toolbar input[type="color"] {
-    width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px; cursor: pointer; background: none;
+  #__wysiwyg_toolbar .wt-color-swatch {
+    width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid #444; cursor: pointer;
   }
+  #__wysiwyg_toolbar .wt-color-swatch:hover { border-color: #fff; background: inherit !important; }
   #__wysiwyg_toolbar input[type="text"] {
     background: #2b2b2b; color: #fff; border: 1px solid #444; border-radius: 4px;
     padding: 4px 8px; font-size: 11px; font-family: inherit; width: 190px; outline: none;
   }
   #__wysiwyg_toolbar input[type="text"]:focus { border-color: #ee0000; }
+  #__wysiwyg_color_popup {
+    position: fixed; z-index: 999999; background: #151515; border-radius: 8px; padding: 8px;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.45);
+  }
+  #__wysiwyg_color_popup .swatch {
+    width: 22px; height: 22px; border-radius: 5px; border: 2px solid transparent; cursor: pointer; padding: 0;
+  }
+  #__wysiwyg_color_popup .swatch:hover { border-color: #fff; }
+  #__wysiwyg_color_popup input[type="color"] {
+    width: 22px; height: 22px; padding: 0; border: none; border-radius: 5px; cursor: pointer; background: none;
+  }
 </style>
 <script data-wysiwyg-overlay>
 (function () {
@@ -485,10 +497,15 @@ const WYSIWYG_OVERLAY_SCRIPT = `
     return null;
   }
   function removeToolbar() { if (toolbar) { toolbar.remove(); toolbar = null; } }
+  function removeColorPopup() {
+    var p = document.getElementById('__wysiwyg_color_popup');
+    if (p) p.remove();
+  }
   function clearSelection() {
     if (selected) selected.removeAttribute('data-wysiwyg-selected');
     selected = null;
     removeToolbar();
+    removeColorPopup();
   }
 
   function rgbToHex(rgb) {
@@ -512,6 +529,7 @@ const WYSIWYG_OVERLAY_SCRIPT = `
 
   function showToolbar(el) {
     removeToolbar();
+    removeColorPopup();
     var rect = el.getBoundingClientRect();
     toolbar = document.createElement('div');
     toolbar.id = '__wysiwyg_toolbar';
@@ -526,18 +544,18 @@ const WYSIWYG_OVERLAY_SCRIPT = `
         '<button data-act="dec" title="글자 작게">A-</button>' +
         '<button data-act="inc" title="글자 크게">A+</button>' +
         '<button data-act="reset" title="기본 크기로">↺</button>' +
-        '<input type="color" data-act="color" title="글자색" value="' + curColor + '">' +
+        '<button data-act="color-toggle" class="wt-color-swatch" style="background:' + curColor + '" title="글자색"></button>' +
         '<button data-act="ai">AI 수정</button>';
     }
     document.body.appendChild(toolbar);
     toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
-    toolbar.addEventListener('input', function (e) {
-      if (e.target.getAttribute('data-act') === 'color') el.style.color = e.target.value;
-    });
-    toolbar.addEventListener('change', function (e) {
-      if (e.target.getAttribute('data-act') === 'color') syncBack();
-    });
     toolbar.addEventListener('click', function (e) {
+      // Without this, a click on any toolbar button also bubbles up to the
+      // document-level click listener below, which sees "clicked somewhere
+      // that isn't inside an editable element" and calls clearSelection() —
+      // wiping out the toolbar this same click just built/updated. That was
+      // the "toolbar disappears after one click" bug.
+      e.stopPropagation();
       var act = e.target.getAttribute('data-act');
       if (!act) return;
       if (act === 'inc' || act === 'dec') {
@@ -549,14 +567,57 @@ const WYSIWYG_OVERLAY_SCRIPT = `
         el.style.removeProperty('font-size');
         showToolbar(el);
         syncBack();
+      } else if (act === 'color-toggle') {
+        showColorPopup(el, toolbar);
       } else if (act === 'ai') {
         showAiInput(el);
       }
     });
   }
 
+  function showColorPopup(el, anchorEl) {
+    if (document.getElementById('__wysiwyg_color_popup')) { removeColorPopup(); return; }
+    var anchorRect = anchorEl.getBoundingClientRect();
+    var popup = document.createElement('div');
+    popup.id = '__wysiwyg_color_popup';
+    popup.setAttribute('data-wysiwyg-overlay', '');
+    var colors = ['#ee0000', '#151515', '#4d4d4d', '#a3a3a3', '#ffffff',
+                  '#0066cc', '#37a3a3', '#5e40be', '#f5921b', '#3e8635'];
+    popup.innerHTML = colors.map(function (c) {
+      return '<button class="swatch" data-color="' + c + '" style="background:' + c + '" title="' + c + '"></button>';
+    }).join('') + '<input type="color" class="wt-custom-color" title="사용자 지정 색상">';
+    document.body.appendChild(popup);
+
+    // Anchor above the toolbar (not below it) so the popup never covers the
+    // very toolbar buttons the user might still want to use.
+    var popupRect = popup.getBoundingClientRect();
+    popup.style.left = Math.max(4, anchorRect.left) + 'px';
+    popup.style.top = Math.max(4, anchorRect.top - popupRect.height - 8) + 'px';
+
+    popup.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    popup.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var c = e.target.getAttribute('data-color');
+      if (c) {
+        el.style.color = c;
+        showToolbar(el);
+        syncBack();
+      }
+    });
+    popup.addEventListener('input', function (e) {
+      if (e.target.classList.contains('wt-custom-color')) el.style.color = e.target.value;
+    });
+    popup.addEventListener('change', function (e) {
+      if (e.target.classList.contains('wt-custom-color')) {
+        showToolbar(el);
+        syncBack();
+      }
+    });
+  }
+
   function showAiInput(el) {
     removeToolbar();
+    removeColorPopup();
     var rect = el.getBoundingClientRect();
     toolbar = document.createElement('div');
     toolbar.id = '__wysiwyg_toolbar';
@@ -576,11 +637,14 @@ const WYSIWYG_OVERLAY_SCRIPT = `
       window.parent.__wysiwygAiEdit(el.outerHTML, instruction);
     }
     toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); submit(); }
-      else if (e.key === 'Escape') { showToolbar(el); }
-    });
+    // Same fix as showToolbar()'s click handler — without stopping
+    // propagation here, clicking "적용"/"✕" bubbled to the document-level
+    // click listener, which treated it as a click outside any editable
+    // element and immediately tore the just-built input box down again
+    // (the "AI 수정 입력창이 안 보인다" bug — it was there for a frame, then
+    // instantly removed).
     toolbar.addEventListener('click', function (e) {
+      e.stopPropagation();
       var act = e.target.getAttribute('data-act');
       if (act === 'ai-submit') submit();
       else if (act === 'ai-cancel') showToolbar(el);
