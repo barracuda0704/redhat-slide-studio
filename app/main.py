@@ -437,15 +437,23 @@ async def api_restore_slide(name: str, filename: str, _: User = Depends(get_curr
 class AiEditRequest(BaseModel):
     instruction: str
     target_html: str | None = None  # outerHTML of one element, if the request came from a WYSIWYG click-to-select
+    current_html: str | None = None  # editor's live (possibly unsaved) HTML, if different from the saved file
 
 
 @app.post("/api/projects/{name}/slides/{filename}/ai-edit")
 async def api_ai_edit_slide(name: str, filename: str, body: AiEditRequest, _: User = Depends(get_current_user)):
     from . import generator
-    try:
-        html = project_manager.get_slide_html(name, filename)
-    except ValueError as e:
-        raise HTTPException(404, str(e))
+    if body.current_html:
+        # Prefer the editor's live content over disk — otherwise unsaved
+        # WYSIWYG changes (font size/color/drag, or a newly-inserted text
+        # box) are invisible to the model, and target_html may not even
+        # exist yet in the saved file.
+        html = body.current_html
+    else:
+        try:
+            html = project_manager.get_slide_html(name, filename)
+        except ValueError as e:
+            raise HTTPException(404, str(e))
     if not body.instruction.strip():
         raise HTTPException(400, "수정 요청 내용을 입력하세요.")
     new_html = await asyncio.to_thread(generator.apply_edit_instruction, html, body.instruction, body.target_html)

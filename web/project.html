@@ -502,12 +502,18 @@ function buildWysiwygOverlayScript(colors) {
   #__wysiwyg_color_popup input[type="color"] {
     width: 22px; height: 22px; padding: 0; border: none; border-radius: 5px; cursor: pointer; background: none;
   }
+  #__wysiwyg_add_rect {
+    position: fixed; z-index: 999998; border: 2px dashed #ee0000; background: rgba(238,0,0,.08);
+    pointer-events: none;
+  }
+  [data-wysiwyg-new] { outline: 2px dashed #ee0000 !important; outline-offset: 1px; }
 </style>
 <script data-wysiwyg-overlay>
 (function () {
   var PALETTE = ${paletteJson};
   var selected = null;
   var toolbar = null;
+  var suppressNextClick = false; // set right after creating a new text box, so the click that follows mouseup doesn't immediately clearSelection() it away
 
   function isEditable(el) { return el && /^(P|H1|H2|H3|H4|H5|H6|LI|IMG)$/.test(el.tagName); }
   function closestEditable(el) {
@@ -636,27 +642,51 @@ function buildWysiwygOverlayScript(colors) {
     });
   }
 
-  function showAiInput(el) {
+  function showAiInput(el, isNew) {
     removeToolbar();
     removeColorPopup();
     var rect = el.getBoundingClientRect();
     toolbar = document.createElement('div');
+    var myToolbar = toolbar;
     toolbar.id = '__wysiwyg_toolbar';
     toolbar.setAttribute('data-wysiwyg-overlay', '');
     toolbar.style.left = Math.max(4, rect.left) + 'px';
     toolbar.style.top = Math.max(4, rect.top - 36) + 'px';
     toolbar.innerHTML =
-      '<input type="text" placeholder="수정 요청 입력 후 Enter">' +
+      '<input type="text" placeholder="' + (isNew ? '넣을 내용을 입력하세요 (예: 배지에 NEW 표시)' : '수정 요청 입력 후 Enter') + '">' +
       '<button data-act="ai-submit">적용</button>' +
       '<button data-act="ai-cancel">✕</button>';
     document.body.appendChild(toolbar);
     var input = toolbar.querySelector('input');
+    var submitBtn = toolbar.querySelector('[data-act="ai-submit"]');
+    var cancelBtn = toolbar.querySelector('[data-act="ai-cancel"]');
     input.focus();
+    var submitting = false;
     function submit() {
+      if (submitting) return;
       var instruction = input.value.trim();
       if (!instruction) return;
-      window.parent.__wysiwygAiEdit(el.outerHTML, instruction);
+      submitting = true;
+      input.disabled = true;
+      submitBtn.disabled = true;
+      cancelBtn.disabled = true;
+      submitBtn.textContent = '적용 중...';
+      var fullInstruction = isNew
+        ? '새로 추가된 빈 텍스트 상자에 다음 내용을 채워넣어 주세요 (위치·크기는 유지): ' + instruction
+        : instruction;
+      window.parent.__wysiwygAiEdit(el.outerHTML, fullInstruction);
     }
+    // Called back from the parent frame (runAiEdit's failure paths) so the
+    // popup recovers if the request errors out — on success the whole
+    // iframe reloads anyway, which clears this popup for free.
+    window.__wysiwygAiEditFailed = function () {
+      if (toolbar !== myToolbar) return; // a different toolbar is showing now
+      submitting = false;
+      input.disabled = false;
+      submitBtn.disabled = false;
+      cancelBtn.disabled = false;
+      submitBtn.textContent = '적용';
+    };
     toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
     // Same fix as showToolbar()'s click handler — without stopping
     // propagation here, clicking "적용"/"✕" bubbled to the document-level
@@ -666,9 +696,13 @@ function buildWysiwygOverlayScript(colors) {
     // instantly removed).
     toolbar.addEventListener('click', function (e) {
       e.stopPropagation();
+      if (submitting) return;
       var act = e.target.getAttribute('data-act');
       if (act === 'ai-submit') submit();
-      else if (act === 'ai-cancel') showToolbar(el);
+      else if (act === 'ai-cancel') {
+        if (isNew) { el.remove(); clearSelection(); syncBack(); }
+        else showToolbar(el);
+      }
     });
   }
 
@@ -679,6 +713,7 @@ function buildWysiwygOverlayScript(colors) {
   });
 
   document.addEventListener('click', function (e) {
+    if (suppressNextClick) { suppressNextClick = false; return; }
     var el = closestEditable(e.target);
     if (!el) { clearSelection(); return; }
     e.preventDefault();
@@ -688,28 +723,149 @@ function buildWysiwygOverlayScript(colors) {
     showToolbar(el);
   });
 
-  var dragEl = null, dragOffsetX = 0, dragOffsetY = 0;
+  // CSS left/top % resolve against the element's offsetParent (its
+  // containing block), not the viewport. The previous implementation used
+  // getBoundingClientRect() (viewport-relative) px values directly as
+  // left/top — correct only when the containing block sits at the viewport
+  // origin, which it almost never does once the slide's own padding/card
+  // wrappers are involved. That mismatch made the image jump to the wrong
+  // spot the instant it left flow layout, which is also why a plain click
+  // (not just a drag) visibly shifted surrounding text: the image left flow
+  // on mousedown alone, before any drag threshold, leaving a gap for text
+  // to reflow into.
+  function refBox(el) {
+    var op = el.offsetParent;
+    if (op && op !== document.body && op !== document.documentElement) {
+      var r = op.getBoundingClientRect();
+      var cs = getComputedStyle(op);
+      return {
+        left: r.left + parseFloat(cs.borderLeftWidth || 0),
+        top: r.top + parseFloat(cs.borderTopWidth || 0),
+        width: op.clientWidth,
+        height: op.clientHeight,
+      };
+    }
+    var r2 = document.body.getBoundingClientRect();
+    return { left: r2.left, top: r2.top, width: r2.width, height: r2.height };
+  }
+
+  function ensureAbsolute(el) {
+    if (getComputedStyle(el).position === 'absolute') return;
+    var r = el.getBoundingClientRect();
+    var box = refBox(el);
+    el.style.width = el.offsetWidth + 'px';
+    el.style.margin = '0';
+    el.style.position = 'absolute';
+    el.style.left = (((r.left - box.left) / box.width) * 100).toFixed(3) + '%';
+    el.style.top = (((r.top - box.top) / box.height) * 100).toFixed(3) + '%';
+  }
+
+  var IMG_DRAG_THRESHOLD = 4;
+  var dragEl = null, dragBox = null, dragStartX = 0, dragStartY = 0, dragOffX = 0, dragOffY = 0, dragMoved = false;
   document.addEventListener('mousedown', function (e) {
     if (e.target.tagName !== 'IMG') return;
     dragEl = e.target;
-    var rect = dragEl.getBoundingClientRect();
-    if (getComputedStyle(dragEl).position !== 'absolute') {
-      dragEl.style.position = 'absolute';
-      dragEl.style.left = rect.left + 'px';
-      dragEl.style.top = rect.top + 'px';
-      dragEl.style.margin = '0';
-    }
-    dragOffsetX = e.clientX - rect.left;
-    dragOffsetY = e.clientY - rect.top;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragMoved = false;
+    // Position isn't touched yet — only a real drag (past the threshold, in
+    // mousemove below) takes the image out of flow. A plain click leaves
+    // layout untouched.
   });
   document.addEventListener('mousemove', function (e) {
     if (!dragEl) return;
-    dragEl.style.left = (e.clientX - dragOffsetX) + 'px';
-    dragEl.style.top = (e.clientY - dragOffsetY) + 'px';
+    if (!dragMoved) {
+      if (Math.abs(e.clientX - dragStartX) < IMG_DRAG_THRESHOLD && Math.abs(e.clientY - dragStartY) < IMG_DRAG_THRESHOLD) return;
+      dragMoved = true;
+      ensureAbsolute(dragEl);
+      dragBox = refBox(dragEl);
+      var r = dragEl.getBoundingClientRect();
+      dragOffX = dragStartX - r.left;
+      dragOffY = dragStartY - r.top;
+    }
+    var left = e.clientX - dragOffX - dragBox.left;
+    var top = e.clientY - dragOffY - dragBox.top;
+    dragEl.style.left = ((left / dragBox.width) * 100).toFixed(3) + '%';
+    dragEl.style.top = ((top / dragBox.height) * 100).toFixed(3) + '%';
     if (toolbar && selected === dragEl) showToolbar(dragEl);
   });
   document.addEventListener('mouseup', function () {
-    if (dragEl) { syncBack(); dragEl = null; }
+    if (dragEl && dragMoved) syncBack();
+    dragEl = null;
+    dragMoved = false;
+  });
+
+  // Click (or drag a rectangle) on empty slide space — anywhere that isn't
+  // an existing text/image element or the overlay's own chrome — to insert
+  // a new placeholder text box there, then immediately ask what to put in
+  // it via the same AI-edit flow used for editing existing elements.
+  var ADD_DRAG_THRESHOLD = 6;
+  var addStart = null, addRect = null;
+
+  function createTextBoxAt(clientLeft, clientTop, pxWidth) {
+    var box = refBox(document.body);
+    var div = document.createElement('div');
+    div.setAttribute('data-wysiwyg-new', '');
+    div.style.position = 'absolute';
+    div.style.left = (((clientLeft - box.left) / box.width) * 100).toFixed(3) + '%';
+    div.style.top = (((clientTop - box.top) / box.height) * 100).toFixed(3) + '%';
+    div.style.width = ((pxWidth / box.width) * 100).toFixed(3) + '%';
+    div.style.zIndex = '5';
+    var p = document.createElement('p');
+    p.style.margin = '0';
+    p.textContent = '새 텍스트';
+    div.appendChild(p);
+    document.body.appendChild(div);
+    return div;
+  }
+
+  document.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
+    if (e.target.tagName === 'IMG') return;
+    if (closestEditable(e.target)) return;
+    addStart = { x: e.clientX, y: e.clientY };
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (!addStart) return;
+    var w = Math.abs(e.clientX - addStart.x), h = Math.abs(e.clientY - addStart.y);
+    if (!addRect && (w >= ADD_DRAG_THRESHOLD || h >= ADD_DRAG_THRESHOLD)) {
+      addRect = document.createElement('div');
+      addRect.id = '__wysiwyg_add_rect';
+      addRect.setAttribute('data-wysiwyg-overlay', '');
+      document.body.appendChild(addRect);
+    }
+    if (addRect) {
+      addRect.style.left = Math.min(e.clientX, addStart.x) + 'px';
+      addRect.style.top = Math.min(e.clientY, addStart.y) + 'px';
+      addRect.style.width = w + 'px';
+      addRect.style.height = h + 'px';
+    }
+  });
+  document.addEventListener('mouseup', function (e) {
+    if (!addStart) return;
+    var wasDrag = !!addRect;
+    var left, top, w;
+    if (wasDrag) {
+      left = Math.min(e.clientX, addStart.x);
+      top = Math.min(e.clientY, addStart.y);
+      w = Math.abs(e.clientX - addStart.x);
+      var h = Math.abs(e.clientY - addStart.y);
+      addRect.remove();
+      addRect = null;
+      if (w < 24 || h < 16) { addStart = null; return; } // too small to be intentional
+    } else {
+      w = 220;
+      left = e.clientX;
+      top = e.clientY;
+    }
+    addStart = null;
+    clearSelection();
+    var el = createTextBoxAt(left, top, w);
+    selected = el;
+    el.setAttribute('data-wysiwyg-selected', '');
+    suppressNextClick = true;
+    showAiInput(el, true);
   });
 })();
 <\/script>
@@ -894,7 +1050,7 @@ async function runAiEdit(instruction, targetHtml) {
     const res = await fetch('/api/projects/' + projectName + '/slides/' + targetSlide + '/ai-edit', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({instruction, target_html: targetHtml || null}),
+      body: JSON.stringify({instruction, target_html: targetHtml || null, current_html: htmlCM.getValue()}),
     });
     const data = await res.json();
     if (res.ok) {
@@ -909,9 +1065,11 @@ async function runAiEdit(instruction, targetHtml) {
       }
     } else {
       showToast('AI 수정 실패: ' + (data.detail || ''), true);
+      resetWysiwygBusyState();
     }
   } catch(e) {
     showToast('AI 수정 오류: ' + e.message, true);
+    resetWysiwygBusyState();
   }
   aiEditInProgress = false;
   setNavigationLocked(false);
@@ -933,6 +1091,15 @@ window.__wysiwygAiEdit = function(targetOuterHtml, instruction) {
   if (!instruction) return;
   runAiEdit(instruction, targetOuterHtml);
 };
+
+// On success renderPreview() reloads the iframe, which wipes the WYSIWYG
+// popup for free. On failure the iframe is untouched, so its "적용 중..."
+// popup would otherwise stay stuck disabled forever — tell it to recover.
+function resetWysiwygBusyState() {
+  const frame = document.getElementById('previewFrame');
+  const win = frame && frame.contentWindow;
+  if (win && win.__wysiwygAiEditFailed) win.__wysiwygAiEditFailed();
+}
 
 function setNavigationLocked(locked) {
   document.querySelector('.slide-sidebar').classList.toggle('nav-locked', locked);
