@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     MODEL_NAME: str = "claude-opus-4-6"
     MAX_OUTPUT_TOKENS: int = 32000
+    IMAGE_MODEL_NAME: str = "gemini-2.5-flash-image"
+    IMAGE_MODEL_LOCATION: str = "global"
 
     ADMIN_EMAIL: str = "barracuda0704@gmail.com"
     ADMIN_INITIAL_PASSWORD: str = "***REMOVED***"

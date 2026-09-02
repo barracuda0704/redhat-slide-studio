@@ -28,6 +28,34 @@ def _create_message(client, **kwargs):
         return stream.get_final_message()
 
 
+def generate_image(prompt: str, aspect_ratio: str = "16:9") -> bytes:
+    """Generate a single image via Gemini (Nano Banana) on Vertex AI and
+    return its raw bytes. Separate from the Claude/Anthropic client above —
+    image generation isn't part of the Anthropic API, so this uses Google's
+    own google-genai SDK against the same GCP project."""
+    from google import genai
+    from google.genai.types import GenerateContentConfig, ImageConfig, Modality
+
+    client = genai.Client(
+        vertexai=True,
+        project=settings.VERTEX_PROJECT_ID,
+        location=settings.IMAGE_MODEL_LOCATION,
+    )
+    response = client.models.generate_content(
+        model=settings.IMAGE_MODEL_NAME,
+        contents=prompt,
+        config=GenerateContentConfig(
+            response_modalities=[Modality.IMAGE],
+            image_config=ImageConfig(aspect_ratio=aspect_ratio),
+        ),
+    )
+    candidates = response.candidates or []
+    for part in (candidates[0].content.parts if candidates and candidates[0].content else []):
+        if part.inline_data and part.inline_data.data:
+            return part.inline_data.data
+    raise RuntimeError("이미지 생성 결과를 받지 못했습니다.")
+
+
 def _load_theme_css(engine_dir: str) -> str:
     p = Path(engine_dir) / "redhat" / "theme.css"
     return p.read_text("utf-8") if p.exists() else ""

@@ -642,6 +642,29 @@ async def api_import_asset_url(name: str, body: ImportAssetUrlRequest, _: User =
     return {"filename": saved_name}
 
 
+# ── AI image generation (Gemini / Nano Banana via Vertex AI) ──
+
+class GenerateImageRequest(BaseModel):
+    prompt: str
+    aspect_ratio: str = "16:9"
+
+
+@app.post("/api/projects/{name}/generate-image")
+async def api_generate_image(name: str, body: GenerateImageRequest, _: User = Depends(get_current_user)):
+    from . import generator
+    if not body.prompt.strip():
+        raise HTTPException(400, "프롬프트를 입력하세요.")
+    try:
+        image_bytes = await asyncio.to_thread(generator.generate_image, body.prompt.strip(), body.aspect_ratio)
+    except Exception as e:
+        raise HTTPException(502, f"이미지 생성 실패: {e}")
+    try:
+        saved_name = project_manager.save_asset(name, "generated.png", image_bytes)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"filename": saved_name}
+
+
 # ── Logo/icon search (SVGL — free public API, no key required) ──
 
 @app.get("/api/logos/search")
