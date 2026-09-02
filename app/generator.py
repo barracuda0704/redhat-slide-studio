@@ -266,17 +266,26 @@ def _edit_system(theme_css: str) -> str:
 """
 
 
-def apply_edit_instruction(html: str, instruction: str) -> str:
+def apply_edit_instruction(html: str, instruction: str, target_html: str | None = None) -> str:
     theme_css = _load_theme_css(settings.ENGINE_DIR)
     client = _get_client()
+    user_msg = ""
+    if target_html:
+        # Comes from the WYSIWYG overlay: the user clicked one specific
+        # element in the rendered preview, so scope the edit to it instead
+        # of leaving the model to guess which part of the slide "제목"/"이
+        # 부분" etc. refers to.
+        user_msg += (
+            "특히 아래 요소를 대상으로 수정하세요 (이 요소의 위치·구조는 최대한 유지):\n"
+            f"```html\n{target_html}\n```\n\n"
+        )
+    user_msg += f"현재 슬라이드 전체 HTML:\n```html\n{html}\n```\n\n수정 요청: {instruction}"
+
     response = _create_message(client,
         model=settings.MODEL_NAME,
         max_tokens=settings.MAX_OUTPUT_TOKENS,
         system=_edit_system(theme_css),
-        messages=[{
-            "role": "user",
-            "content": f"현재 슬라이드 HTML:\n```html\n{html}\n```\n\n수정 요청: {instruction}",
-        }],
+        messages=[{"role": "user", "content": user_msg}],
     )
     text = response.content[0].text
     m = re.search(r'```html\s*\n(.*?)```', text, re.DOTALL)

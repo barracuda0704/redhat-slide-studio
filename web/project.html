@@ -444,10 +444,143 @@ function toggleHtmlEditor() {
   });
 })();
 
+// WYSIWYG overlay injected into the preview iframe's own document. The
+// iframe is same-origin (srcdoc inherits the parent's origin), so this
+// script can call window.parent.* directly — no postMessage plumbing
+// needed. Click an element -> floating toolbar: font-size +/-/reset for
+// text, drag-to-reposition for images, and "AI 수정" (scoped to that one
+// element) on both, reusing the existing ai-edit endpoint/lock.
+const WYSIWYG_OVERLAY_SCRIPT = `
+<style data-wysiwyg-overlay>
+  [data-wysiwyg-hover] { outline: 2px dashed #ee0000 !important; outline-offset: 1px; cursor: pointer; }
+  [data-wysiwyg-selected] { outline: 2px solid #ee0000 !important; outline-offset: 1px; }
+  #__wysiwyg_toolbar {
+    position: fixed; z-index: 999999; background: #151515; border-radius: 6px; padding: 5px 6px;
+    display: flex; gap: 5px; align-items: center; box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    font-family: -apple-system, "Segoe UI", sans-serif; font-size: 11px; white-space: nowrap;
+  }
+  #__wysiwyg_toolbar button {
+    background: #2b2b2b; color: #fff; border: none; border-radius: 4px; padding: 4px 8px;
+    cursor: pointer; font-size: 11px; line-height: 1; font-family: inherit;
+  }
+  #__wysiwyg_toolbar button:hover { background: #ee0000; }
+  #__wysiwyg_toolbar .wt-label { color: #9aa0a6; padding: 0 2px; }
+</style>
+<script data-wysiwyg-overlay>
+(function () {
+  var selected = null;
+  var toolbar = null;
+
+  function isEditable(el) { return el && /^(P|H1|H2|H3|H4|H5|H6|LI|IMG)$/.test(el.tagName); }
+  function closestEditable(el) {
+    while (el && el !== document.body) { if (isEditable(el)) return el; el = el.parentElement; }
+    return null;
+  }
+  function removeToolbar() { if (toolbar) { toolbar.remove(); toolbar = null; } }
+  function clearSelection() {
+    if (selected) selected.removeAttribute('data-wysiwyg-selected');
+    selected = null;
+    removeToolbar();
+  }
+
+  function syncBack() {
+    var clone = document.documentElement.cloneNode(true);
+    clone.querySelectorAll('[data-wysiwyg-overlay]').forEach(function (n) { n.remove(); });
+    clone.querySelectorAll('[data-wysiwyg-hover],[data-wysiwyg-selected]').forEach(function (n) {
+      n.removeAttribute('data-wysiwyg-hover');
+      n.removeAttribute('data-wysiwyg-selected');
+    });
+    window.parent.__wysiwygSync('<' + '!DOCTYPE html>\\n' + clone.outerHTML);
+  }
+
+  function showToolbar(el) {
+    removeToolbar();
+    var rect = el.getBoundingClientRect();
+    toolbar = document.createElement('div');
+    toolbar.id = '__wysiwyg_toolbar';
+    toolbar.setAttribute('data-wysiwyg-overlay', '');
+    toolbar.style.left = Math.max(4, rect.left) + 'px';
+    toolbar.style.top = Math.max(4, rect.top - 36) + 'px';
+    if (el.tagName === 'IMG') {
+      toolbar.innerHTML = '<span class="wt-label">드래그로 이동</span><button data-act="ai">AI 수정</button>';
+    } else {
+      toolbar.innerHTML =
+        '<button data-act="dec" title="글자 작게">A-</button>' +
+        '<button data-act="inc" title="글자 크게">A+</button>' +
+        '<button data-act="reset" title="기본 크기로">↺</button>' +
+        '<button data-act="ai">AI 수정</button>';
+    }
+    document.body.appendChild(toolbar);
+    toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    toolbar.addEventListener('click', function (e) {
+      var act = e.target.getAttribute('data-act');
+      if (!act) return;
+      if (act === 'inc' || act === 'dec') {
+        var cur = parseFloat(getComputedStyle(el).fontSize) || 16;
+        el.style.fontSize = Math.max(6, cur + (act === 'inc' ? 2 : -2)) + 'px';
+        showToolbar(el);
+        syncBack();
+      } else if (act === 'reset') {
+        el.style.removeProperty('font-size');
+        showToolbar(el);
+        syncBack();
+      } else if (act === 'ai') {
+        var instruction = window.prompt('이 요소를 어떻게 수정할까요?');
+        if (instruction) window.parent.__wysiwygAiEdit(el.outerHTML, instruction);
+      }
+    });
+  }
+
+  document.addEventListener('mouseover', function (e) {
+    var el = closestEditable(e.target);
+    document.querySelectorAll('[data-wysiwyg-hover]').forEach(function (n) { n.removeAttribute('data-wysiwyg-hover'); });
+    if (el && el !== selected) el.setAttribute('data-wysiwyg-hover', '');
+  });
+
+  document.addEventListener('click', function (e) {
+    var el = closestEditable(e.target);
+    if (!el) { clearSelection(); return; }
+    e.preventDefault();
+    if (selected) selected.removeAttribute('data-wysiwyg-selected');
+    selected = el;
+    el.setAttribute('data-wysiwyg-selected', '');
+    showToolbar(el);
+  });
+
+  var dragEl = null, dragOffsetX = 0, dragOffsetY = 0;
+  document.addEventListener('mousedown', function (e) {
+    if (e.target.tagName !== 'IMG') return;
+    dragEl = e.target;
+    var rect = dragEl.getBoundingClientRect();
+    if (getComputedStyle(dragEl).position !== 'absolute') {
+      dragEl.style.position = 'absolute';
+      dragEl.style.left = rect.left + 'px';
+      dragEl.style.top = rect.top + 'px';
+      dragEl.style.margin = '0';
+    }
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (!dragEl) return;
+    dragEl.style.left = (e.clientX - dragOffsetX) + 'px';
+    dragEl.style.top = (e.clientY - dragOffsetY) + 'px';
+    if (toolbar && selected === dragEl) showToolbar(dragEl);
+  });
+  document.addEventListener('mouseup', function () {
+    if (dragEl) { syncBack(); dragEl = null; }
+  });
+})();
+<\/script>
+`;
+
 function buildPreviewHtml(rawHtml) {
-  return rawHtml
+  const rewritten = rawHtml
     .replaceAll('../../../../redhat/', '/engine/redhat/')
     .replaceAll('src="assets/', 'src="/api/projects/' + projectName + '/assets/');
+  return rewritten.includes('</body>')
+    ? rewritten.replace('</body>', WYSIWYG_OVERLAY_SCRIPT + '</body>')
+    : rewritten + WYSIWYG_OVERLAY_SCRIPT;
 }
 
 function renderPreview(rawHtml) {
@@ -456,6 +589,16 @@ function renderPreview(rawHtml) {
   frame.srcdoc = buildPreviewHtml(rawHtml);
   requestAnimationFrame(fitPreviewFrame);
 }
+
+// Called by the overlay after any font-size/drag change. Reverses the two
+// path rewrites buildPreviewHtml() applied so what lands back in CodeMirror
+// matches the stored-source format exactly.
+window.__wysiwygSync = function (previewHtml) {
+  const restored = previewHtml
+    .replaceAll('src="/api/projects/' + projectName + '/assets/', 'src="assets/')
+    .replaceAll('/engine/redhat/', '../../../../redhat/');
+  htmlCM.setValue(restored); // fires 'change' -> dirty + debounced re-render
+};
 
 function onHtmlInput() {
   const val = htmlCM.getValue();
@@ -581,12 +724,8 @@ function showImageGenStub() {
   showToast('이미지 생성 기능은 준비 중입니다.');
 }
 
-async function applyAiEdit() {
+async function runAiEdit(instruction, targetHtml) {
   if (!currentSlide || aiEditInProgress) return;
-  const input = document.getElementById('aiEditInput');
-  const instruction = input.value.trim();
-  if (!instruction) return;
-
   const targetSlide = currentSlide; // the request is scoped to whatever slide is open right now
   aiEditInProgress = true;
   setNavigationLocked(true);
@@ -598,7 +737,7 @@ async function applyAiEdit() {
     const res = await fetch('/api/projects/' + projectName + '/slides/' + targetSlide + '/ai-edit', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({instruction}),
+      body: JSON.stringify({instruction, target_html: targetHtml || null}),
     });
     const data = await res.json();
     if (res.ok) {
@@ -607,7 +746,6 @@ async function applyAiEdit() {
         // always hold — checked anyway in case that ever changes.
         htmlCM.setValue(data.html); // fires 'change' -> onHtmlInput() marks dirty since it differs from originalHtml
         renderPreview(data.html);
-        input.value = '';
         showToast('AI 수정 결과를 반영했습니다. 확인 후 저장하세요.');
       } else {
         showToast('"' + targetSlide.replace('.html','') + '" 슬라이드의 AI 수정 결과가 준비됐지만 화면이 전환되어 반영하지 않았습니다.', true);
@@ -623,6 +761,21 @@ async function applyAiEdit() {
   btn.disabled = false;
   btn.textContent = original;
 }
+
+async function applyAiEdit() {
+  const input = document.getElementById('aiEditInput');
+  const instruction = input.value.trim();
+  if (!instruction) return;
+  await runAiEdit(instruction, null);
+  input.value = '';
+}
+
+// Called by the WYSIWYG overlay script running inside the preview iframe
+// when the user clicks "AI 수정" on a selected element.
+window.__wysiwygAiEdit = function(targetOuterHtml, instruction) {
+  if (!instruction) return;
+  runAiEdit(instruction, targetOuterHtml);
+};
 
 function setNavigationLocked(locked) {
   document.querySelector('.slide-sidebar').classList.toggle('nav-locked', locked);

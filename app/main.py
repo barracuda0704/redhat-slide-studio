@@ -436,6 +436,7 @@ async def api_restore_slide(name: str, filename: str, _: User = Depends(get_curr
 
 class AiEditRequest(BaseModel):
     instruction: str
+    target_html: str | None = None  # outerHTML of one element, if the request came from a WYSIWYG click-to-select
 
 
 @app.post("/api/projects/{name}/slides/{filename}/ai-edit")
@@ -447,7 +448,7 @@ async def api_ai_edit_slide(name: str, filename: str, body: AiEditRequest, _: Us
         raise HTTPException(404, str(e))
     if not body.instruction.strip():
         raise HTTPException(400, "수정 요청 내용을 입력하세요.")
-    new_html = await asyncio.to_thread(generator.apply_edit_instruction, html, body.instruction)
+    new_html = await asyncio.to_thread(generator.apply_edit_instruction, html, body.instruction, body.target_html)
     return {"html": new_html}
 
 
