@@ -3,6 +3,7 @@ import json
 import os
 import base64
 import mimetypes
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -403,6 +404,53 @@ class ProjectManager:
         path = self._version_dir(name, version) / "assets" / _validate_asset_filename(filename)
         if path.exists():
             path.unlink()
+
+    # ── Comments ──
+    # Stored as a comments.json sidecar per version (not embedded as HTML
+    # comments in the slide file itself, unlike the reference implementation
+    # this was ported from) — the slide HTML is sent whole to the AI-edit
+    # model and scanned by the PPTX build's DOM parser, so hiding comments
+    # inside it risks both leaking into prompts and being misread as content.
+
+    def _comments_path(self, name: str, version: str = "v1.0") -> Path:
+        return self._version_dir(name, version) / "comments.json"
+
+    def _load_comments(self, name: str, version: str = "v1.0") -> dict:
+        p = self._comments_path(name, version)
+        if p.exists():
+            return json.loads(p.read_text("utf-8"))
+        return {}
+
+    def _save_comments(self, name: str, data: dict, version: str = "v1.0") -> None:
+        self._comments_path(name, version).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    def list_comments(self, name: str, filename: str, version: str = "v1.0") -> list[dict]:
+        data = self._load_comments(name, version)
+        return data.get(_validate_filename(filename), [])
+
+    def add_comment(self, name: str, filename: str, path: list[str], note: str, version: str = "v1.0") -> dict:
+        _validate_filename(filename)
+        with self._lock_for(name):
+            data = self._load_comments(name, version)
+            comment = {
+                "id": "c-" + secrets.token_hex(6),
+                "path": path,
+                "note": note,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            data.setdefault(filename, []).append(comment)
+            self._save_comments(name, data, version)
+        return comment
+
+    def delete_comment(self, name: str, filename: str, comment_id: str, version: str = "v1.0") -> None:
+        _validate_filename(filename)
+        with self._lock_for(name):
+            data = self._load_comments(name, version)
+            if filename in data:
+                data[filename] = [c for c in data[filename] if c["id"] != comment_id]
+                self._save_comments(name, data, version)
 
     def build_pptx(self, name: str, version: str = "v1.0") -> str:
         _validate_name(name)

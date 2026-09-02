@@ -584,6 +584,41 @@ async def api_delete_asset(name: str, filename: str, _: User = Depends(get_curre
     return {"status": "deleted"}
 
 
+# ── Comments ──
+
+class AddCommentRequest(BaseModel):
+    path: list[str]  # element path from the WYSIWYG overlay, e.g. ["DIV:0","P:1"]
+    note: str
+
+
+@app.get("/api/projects/{name}/slides/{filename}/comments")
+async def api_list_comments(name: str, filename: str, _: User = Depends(get_current_user)):
+    try:
+        return project_manager.list_comments(name, filename)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/projects/{name}/slides/{filename}/comments")
+async def api_add_comment(name: str, filename: str, body: AddCommentRequest, _: User = Depends(get_current_user)):
+    if not body.note.strip():
+        raise HTTPException(400, "코멘트 내용을 입력하세요.")
+    try:
+        comment = project_manager.add_comment(name, filename, body.path, body.note.strip())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return comment
+
+
+@app.delete("/api/projects/{name}/slides/{filename}/comments/{comment_id}")
+async def api_delete_comment(name: str, filename: str, comment_id: str, _: User = Depends(get_current_user)):
+    try:
+        project_manager.delete_comment(name, filename, comment_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "deleted"}
+
+
 class ImportAssetUrlRequest(BaseModel):
     url: str
     filename: str
