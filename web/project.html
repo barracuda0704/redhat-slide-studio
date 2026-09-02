@@ -465,6 +465,14 @@ const WYSIWYG_OVERLAY_SCRIPT = `
   }
   #__wysiwyg_toolbar button:hover { background: #ee0000; }
   #__wysiwyg_toolbar .wt-label { color: #9aa0a6; padding: 0 2px; }
+  #__wysiwyg_toolbar input[type="color"] {
+    width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px; cursor: pointer; background: none;
+  }
+  #__wysiwyg_toolbar input[type="text"] {
+    background: #2b2b2b; color: #fff; border: 1px solid #444; border-radius: 4px;
+    padding: 4px 8px; font-size: 11px; font-family: inherit; width: 190px; outline: none;
+  }
+  #__wysiwyg_toolbar input[type="text"]:focus { border-color: #ee0000; }
 </style>
 <script data-wysiwyg-overlay>
 (function () {
@@ -481,6 +489,15 @@ const WYSIWYG_OVERLAY_SCRIPT = `
     if (selected) selected.removeAttribute('data-wysiwyg-selected');
     selected = null;
     removeToolbar();
+  }
+
+  function rgbToHex(rgb) {
+    var m = rgb && rgb.match(/\\d+/g);
+    if (!m) return '#000000';
+    return '#' + m.slice(0, 3).map(function (x) {
+      var h = parseInt(x, 10).toString(16);
+      return h.length === 1 ? '0' + h : h;
+    }).join('');
   }
 
   function syncBack() {
@@ -504,30 +521,69 @@ const WYSIWYG_OVERLAY_SCRIPT = `
     if (el.tagName === 'IMG') {
       toolbar.innerHTML = '<span class="wt-label">드래그로 이동</span><button data-act="ai">AI 수정</button>';
     } else {
+      var curColor = rgbToHex(getComputedStyle(el).color);
       toolbar.innerHTML =
         '<button data-act="dec" title="글자 작게">A-</button>' +
         '<button data-act="inc" title="글자 크게">A+</button>' +
         '<button data-act="reset" title="기본 크기로">↺</button>' +
+        '<input type="color" data-act="color" title="글자색" value="' + curColor + '">' +
         '<button data-act="ai">AI 수정</button>';
     }
     document.body.appendChild(toolbar);
     toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    toolbar.addEventListener('input', function (e) {
+      if (e.target.getAttribute('data-act') === 'color') el.style.color = e.target.value;
+    });
+    toolbar.addEventListener('change', function (e) {
+      if (e.target.getAttribute('data-act') === 'color') syncBack();
+    });
     toolbar.addEventListener('click', function (e) {
       var act = e.target.getAttribute('data-act');
       if (!act) return;
       if (act === 'inc' || act === 'dec') {
         var cur = parseFloat(getComputedStyle(el).fontSize) || 16;
         el.style.fontSize = Math.max(6, cur + (act === 'inc' ? 2 : -2)) + 'px';
-        showToolbar(el);
+        showToolbar(el); // re-show in place, no reload — repeated clicks now keep working
         syncBack();
       } else if (act === 'reset') {
         el.style.removeProperty('font-size');
         showToolbar(el);
         syncBack();
       } else if (act === 'ai') {
-        var instruction = window.prompt('이 요소를 어떻게 수정할까요?');
-        if (instruction) window.parent.__wysiwygAiEdit(el.outerHTML, instruction);
+        showAiInput(el);
       }
+    });
+  }
+
+  function showAiInput(el) {
+    removeToolbar();
+    var rect = el.getBoundingClientRect();
+    toolbar = document.createElement('div');
+    toolbar.id = '__wysiwyg_toolbar';
+    toolbar.setAttribute('data-wysiwyg-overlay', '');
+    toolbar.style.left = Math.max(4, rect.left) + 'px';
+    toolbar.style.top = Math.max(4, rect.top - 36) + 'px';
+    toolbar.innerHTML =
+      '<input type="text" placeholder="수정 요청 입력 후 Enter">' +
+      '<button data-act="ai-submit">적용</button>' +
+      '<button data-act="ai-cancel">✕</button>';
+    document.body.appendChild(toolbar);
+    var input = toolbar.querySelector('input');
+    input.focus();
+    function submit() {
+      var instruction = input.value.trim();
+      if (!instruction) return;
+      window.parent.__wysiwygAiEdit(el.outerHTML, instruction);
+    }
+    toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      else if (e.key === 'Escape') { showToolbar(el); }
+    });
+    toolbar.addEventListener('click', function (e) {
+      var act = e.target.getAttribute('data-act');
+      if (act === 'ai-submit') submit();
+      else if (act === 'ai-cancel') showToolbar(el);
     });
   }
 
@@ -590,19 +646,32 @@ function renderPreview(rawHtml) {
   requestAnimationFrame(fitPreviewFrame);
 }
 
-// Called by the overlay after any font-size/drag change. Reverses the two
-// path rewrites buildPreviewHtml() applied so what lands back in CodeMirror
-// matches the stored-source format exactly.
+// Called by the overlay after any font-size/color/drag change. Reverses the
+// two path rewrites buildPreviewHtml() applied so what lands back in
+// CodeMirror matches the stored-source format exactly.
+//
+// The iframe's own live DOM already reflects the change (that's what the
+// overlay just mutated) — re-rendering the preview from this synced source
+// would reload the iframe from scratch and wipe the overlay's selection/
+// toolbar state, which is exactly what made repeated clicks (e.g. A+ A+ A+)
+// so annoying. suppressNextRerender skips just that one re-render; the
+// source (and dirty flag) still update normally.
+let suppressNextRerender = false;
 window.__wysiwygSync = function (previewHtml) {
   const restored = previewHtml
     .replaceAll('src="/api/projects/' + projectName + '/assets/', 'src="assets/')
     .replaceAll('/engine/redhat/', '../../../../redhat/');
-  htmlCM.setValue(restored); // fires 'change' -> dirty + debounced re-render
+  suppressNextRerender = true;
+  htmlCM.setValue(restored); // fires 'change' -> onHtmlInput()
 };
 
 function onHtmlInput() {
   const val = htmlCM.getValue();
   setDirty(val !== originalHtml);
+  if (suppressNextRerender) {
+    suppressNextRerender = false;
+    return;
+  }
   clearTimeout(liveUpdateTimer);
   liveUpdateTimer = setTimeout(() => renderPreview(val), 250);
 }
