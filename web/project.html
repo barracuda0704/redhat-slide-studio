@@ -76,7 +76,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
   align-items: center; justify-content: center;
 }
 .present-overlay.open { display: flex; }
-.present-overlay iframe { width: 100%; height: 100%; border: none; background: #fff; }
+.present-overlay iframe { width: 960px; height: 540px; border: none; background: #fff; transform-origin: center center; }
 .present-close, .present-nav {
   position: absolute; z-index: 5001; background: rgba(255,255,255,.12); color: #fff; border: none;
   border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -478,7 +478,7 @@ async function loadNavUser() {
     const res = await fetch('/api/me');
     if (!res.ok) { window.location.href = '/login'; return; }
     const me = await res.json();
-    if (me.login_disabled) return;
+    if (me.login_disabled) { document.getElementById('navUser').style.display = 'none'; return; }
     document.getElementById('navUser').innerHTML = navUserHTML(me);
   } catch(e) { window.location.href = '/login'; }
 }
@@ -752,7 +752,17 @@ function buildWysiwygOverlayScript(colors) {
   var pendingNewEl = null; // a just-created, not-yet-submitted text box — discarded if the user abandons it instead of typing something
   var commentMode = false; // mutually exclusive with normal selection/editing, same as the reference gallery's Comment Mode
 
-  function isEditable(el) { return el && /^(P|H1|H2|H3|H4|H5|H6|LI|IMG)$/.test(el.tagName); }
+  // Any element is selectable now — shapes, cards, decorative boxes, not
+  // just text/images — except the document root and the overlay's own
+  // chrome. isTextLeaf() marks the subset that gets font/text controls;
+  // everything else gets the generic shape toolbar (background/radius/
+  // z-index/visibility/resize/drag) instead.
+  function isTextLeaf(el) { return el && /^(P|H1|H2|H3|H4|H5|H6|LI)$/.test(el.tagName); }
+  function isEditable(el) {
+    return !!(el && el.nodeType === 1 && el !== document.body && el !== document.documentElement &&
+      el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE' &&
+      !el.hasAttribute('data-wysiwyg-overlay') && !(el.closest && el.closest('[data-wysiwyg-overlay]')));
+  }
   function closestEditable(el) {
     while (el && el !== document.body) { if (isEditable(el)) return el; el = el.parentElement; }
     return null;
@@ -824,7 +834,7 @@ function buildWysiwygOverlayScript(colors) {
     toolbar.style.top = Math.max(4, rect.top - 36) + 'px';
     if (el.tagName === 'IMG') {
       toolbar.innerHTML = warnLabel + '<span class="wt-label">드래그로 이동</span><button data-act="more" title="배경·모서리·순서·숨김">⋯</button><button data-act="ai">AI 수정</button><button data-act="delete" title="삭제">삭제</button>';
-    } else {
+    } else if (isTextLeaf(el)) {
       var curColor = rgbToHex(getComputedStyle(el).color);
       toolbar.innerHTML = warnLabel +
         '<button data-act="dec" title="글자 작게">A-</button>' +
@@ -834,6 +844,15 @@ function buildWysiwygOverlayScript(colors) {
         '<button data-act="italic" title="기울임" style="font-style:italic">I</button>' +
         '<button data-act="strike" title="취소선" style="text-decoration:line-through">S</button>' +
         '<button data-act="color-toggle" class="wt-color-swatch" style="background:' + curColor + '" title="글자색"></button>' +
+        '<button data-act="more" title="배경·모서리·순서·숨김">⋯</button>' +
+        '<button data-act="ai">AI 수정</button>' +
+        '<button data-act="delete" title="삭제">삭제</button>';
+    } else {
+      // Generic shape/container element (card, decorative box, etc.) — no
+      // direct text of its own to style, but fully movable/resizable and
+      // still reachable for background/radius/layer/visibility/AI edits.
+      toolbar.innerHTML = warnLabel +
+        '<span class="wt-label">드래그·리사이즈</span>' +
         '<button data-act="more" title="배경·모서리·순서·숨김">⋯</button>' +
         '<button data-act="ai">AI 수정</button>' +
         '<button data-act="delete" title="삭제">삭제</button>';
@@ -1004,15 +1023,14 @@ function buildWysiwygOverlayScript(colors) {
     });
   }
 
-  // Resize handles apply to images (already freely positioned via drag) and
-  // to our own click/drag-inserted text boxes (data-wysiwyg-new divs) — not
-  // arbitrary AI-generated layout <div>s, since broadening click-selection
-  // to any div would collide with the "click empty space to add content"
-  // gesture. Clicking a new box's inner <p> still targets the <p> for text
-  // styling; resizableTarget() redirects geometry edits to its wrapping div.
-  function isFreelyPositionable(el) {
-    return el.tagName === 'IMG' || el.hasAttribute('data-wysiwyg-new') || getComputedStyle(el).position === 'absolute';
-  }
+  // Resize/drag handles apply directly to any selected non-text element
+  // (images, shapes, cards, decorative boxes) — only bare text leaves
+  // (p/h1-6/li) don't get their own handles, since resizing a text node
+  // by itself is meaningless; resizableTarget() redirects those to their
+  // wrapping data-wysiwyg-new box when the text IS one of our own inserted
+  // placeholders (clicking a new box's inner <p> still targets the <p>
+  // for font/color styling, but geometry edits act on the wrapping div).
+  function isFreelyPositionable(el) { return !isTextLeaf(el); }
   function resizableTarget(el) {
     if (isFreelyPositionable(el)) return el;
     var wrap = el.closest && el.closest('[data-wysiwyg-new]');
@@ -1059,8 +1077,14 @@ function buildWysiwygOverlayScript(colors) {
     ensureAbsolute(el);
     var box = refBox(el);
     var rect = el.getBoundingClientRect();
+    // Original (intrinsic) aspect ratio, not whatever ratio the element
+    // happens to be displayed at right now — a corner-handle drag on an
+    // image should scale it proportionally to how the source image was
+    // actually shot/exported, not lock in an already-distorted ratio.
+    var aspect = (el.tagName === 'IMG' && el.naturalWidth && el.naturalHeight)
+      ? el.naturalWidth / el.naturalHeight : null;
     resizeState = {
-      el: el, dir: dir, box: box,
+      el: el, dir: dir, box: box, aspect: aspect,
       startX: e.clientX, startY: e.clientY,
       startLeft: rect.left - box.left, startTop: rect.top - box.top,
       startWidth: rect.width, startHeight: rect.height,
@@ -1073,10 +1097,20 @@ function buildWysiwygOverlayScript(colors) {
     var s = resizeState;
     var dx = e.clientX - s.startX, dy = e.clientY - s.startY;
     var left = s.startLeft, top = s.startTop, width = s.startWidth, height = s.startHeight;
-    if (s.dir.indexOf('e') !== -1) width = Math.max(16, s.startWidth + dx);
-    if (s.dir.indexOf('s') !== -1) height = Math.max(16, s.startHeight + dy);
-    if (s.dir.indexOf('w') !== -1) { width = Math.max(16, s.startWidth - dx); left = s.startLeft + (s.startWidth - width); }
-    if (s.dir.indexOf('n') !== -1) { height = Math.max(16, s.startHeight - dy); top = s.startTop + (s.startHeight - height); }
+    var isCorner = s.dir.length === 2; // 'nw'/'ne'/'sw'/'se' vs single-axis 'n'/'e'/'s'/'w'
+    if (isCorner && s.aspect) {
+      // Diagonal resize keeps the image's own aspect ratio — driven off
+      // horizontal movement, height follows automatically.
+      width = Math.max(16, s.dir.indexOf('e') !== -1 ? s.startWidth + dx : s.startWidth - dx);
+      height = width / s.aspect;
+      if (s.dir.indexOf('w') !== -1) left = s.startLeft + (s.startWidth - width);
+      if (s.dir.indexOf('n') !== -1) top = s.startTop + (s.startHeight - height);
+    } else {
+      if (s.dir.indexOf('e') !== -1) width = Math.max(16, s.startWidth + dx);
+      if (s.dir.indexOf('s') !== -1) height = Math.max(16, s.startHeight + dy);
+      if (s.dir.indexOf('w') !== -1) { width = Math.max(16, s.startWidth - dx); left = s.startLeft + (s.startWidth - width); }
+      if (s.dir.indexOf('n') !== -1) { height = Math.max(16, s.startHeight - dy); top = s.startTop + (s.startHeight - height); }
+    }
     s.el.style.left = ((left / s.box.width) * 100).toFixed(3) + '%';
     s.el.style.top = ((top / s.box.height) * 100).toFixed(3) + '%';
     s.el.style.width = ((width / s.box.width) * 100).toFixed(3) + '%';
@@ -1283,23 +1317,27 @@ function buildWysiwygOverlayScript(colors) {
     el.style.top = (((r.top - box.top) / box.height) * 100).toFixed(3) + '%';
   }
 
-  var IMG_DRAG_THRESHOLD = 4;
+  var DRAG_THRESHOLD = 4;
   var dragEl = null, dragBox = null, dragStartX = 0, dragStartY = 0, dragOffX = 0, dragOffY = 0, dragMoved = false;
   document.addEventListener('mousedown', function (e) {
-    if (commentMode || e.target.tagName !== 'IMG') return;
+    // Any non-text element is drag-to-reposition-able now (images, shapes,
+    // cards) — text leaves stay click-only (select for font editing), and
+    // clicking body itself falls through to the add-content gesture below.
+    if (commentMode || e.target === document.body || isTextLeaf(e.target)) return;
+    if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
     discardPendingNew();
     dragEl = e.target;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
     dragMoved = false;
     // Position isn't touched yet — only a real drag (past the threshold, in
-    // mousemove below) takes the image out of flow. A plain click leaves
+    // mousemove below) takes the element out of flow. A plain click leaves
     // layout untouched.
   });
   document.addEventListener('mousemove', function (e) {
     if (!dragEl) return;
     if (!dragMoved) {
-      if (Math.abs(e.clientX - dragStartX) < IMG_DRAG_THRESHOLD && Math.abs(e.clientY - dragStartY) < IMG_DRAG_THRESHOLD) return;
+      if (Math.abs(e.clientX - dragStartX) < DRAG_THRESHOLD && Math.abs(e.clientY - dragStartY) < DRAG_THRESHOLD) return;
       dragMoved = true;
       ensureAbsolute(dragEl);
       dragBox = refBox(dragEl);
@@ -1319,10 +1357,12 @@ function buildWysiwygOverlayScript(colors) {
     dragMoved = false;
   });
 
-  // Click (or drag a rectangle) on empty slide space — anywhere that isn't
-  // an existing text/image element or the overlay's own chrome — to insert
-  // a new placeholder text box there, then immediately ask what to put in
-  // it via the same AI-edit flow used for editing existing elements.
+  // Click (or drag a rectangle) on truly empty slide space — now that every
+  // element is individually selectable, this only fires when the click
+  // lands directly on <body> itself (not on any shape/card/text/image) —
+  // to insert a new placeholder text box there, then immediately ask what
+  // to put in it via the same AI-edit flow used for editing existing
+  // elements.
   var ADD_DRAG_THRESHOLD = 6;
   var addStart = null, addRect = null;
 
@@ -1810,6 +1850,12 @@ async function insertBlankSlideAt(atIndex) {
 
 let presentIndex = 0;
 
+function fitPresentFrame() {
+  const frame = document.getElementById('presentFrame');
+  const scale = Math.max(Math.min(window.innerWidth / 960, window.innerHeight / 540), 0.1);
+  frame.style.transform = 'scale(' + scale + ')';
+}
+
 function enterPresentMode() {
   if (blockIfAiEditBusy()) return;
   const slides = project && project.slides || [];
@@ -1817,14 +1863,33 @@ function enterPresentMode() {
   presentIndex = Math.max(0, slides.indexOf(currentSlide));
   document.getElementById('presentOverlay').classList.add('open');
   renderPresentSlide();
+  fitPresentFrame();
   const overlay = document.getElementById('presentOverlay');
-  if (overlay.requestFullscreen) overlay.requestFullscreen().catch(() => {});
+  if (overlay.requestFullscreen) {
+    // innerWidth/innerHeight only change once the fullscreen transition
+    // actually completes, so the pre-fullscreen fitPresentFrame() call
+    // above is sized for the un-fullscreened viewport — refit afterward.
+    overlay.requestFullscreen().then(fitPresentFrame).catch(() => {});
+  }
 }
 
 function exitPresentMode() {
   document.getElementById('presentOverlay').classList.remove('open');
   if (document.fullscreenElement) document.exitFullscreen();
 }
+
+window.addEventListener('resize', fitPresentFrame);
+// Escape exits fullscreen as a browser-level safety behavior no page JS can
+// intercept or prevent — relying on our own keydown handler to also notice
+// Escape and close the overlay was unreliable. Reacting to the fullscreen
+// state itself instead: whenever fullscreen ends while still "presenting",
+// close the overlay too, regardless of what caused the exit (Escape, F11,
+// browser UI).
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && document.getElementById('presentOverlay').classList.contains('open')) {
+    exitPresentMode();
+  }
+});
 
 function presentStep(delta) {
   const slides = project && project.slides || [];

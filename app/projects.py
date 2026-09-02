@@ -220,12 +220,20 @@ class ProjectManager:
             html_dir = self._version_dir(name, version) / "html"
             html_dir.mkdir(parents=True, exist_ok=True)
             target = html_dir / filename
-            if target.exists():
-                # One-level undo: snapshot the pre-overwrite content in a
-                # sibling .backups/ dir — NOT html/, so build.js's own
-                # slide*.html glob (which it also uses in list_slides()) can
-                # never pick a backup up as a real slide.
-                (self._backup_dir(name, version) / filename).write_text(target.read_text("utf-8"), "utf-8")
+            backup_path = self._backup_dir(name, version) / filename
+            if target.exists() and not backup_path.exists():
+                # Snapshot only the very first time this slide is ever
+                # overwritten (presumably its as-generated original) — NOT
+                # on every save. A backup that gets replaced by every save
+                # only ever lets "되돌리기" undo the single most recent
+                # save, silently baking in every earlier WYSIWYG edit that
+                # happened to get saved along the way (e.g. font-size
+                # reverting but an earlier color/bold change not, depending
+                # purely on save order) instead of reverting to the true
+                # original. Stored in a sibling .backups/ dir — NOT html/,
+                # so build.js's own slide*.html glob (also used by
+                # list_slides()) can never pick a backup up as a real slide.
+                backup_path.write_text(target.read_text("utf-8"), "utf-8")
             target.write_text(html, "utf-8")
             self._sync_content_md_slide(name, filename, html, version)
             meta = self._load_meta(name, version)
