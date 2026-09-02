@@ -450,7 +450,24 @@ function toggleHtmlEditor() {
 // needed. Click an element -> floating toolbar: font-size +/-/reset for
 // text, drag-to-reposition for images, and "AI 수정" (scoped to that one
 // element) on both, reusing the existing ai-edit endpoint/lock.
-const WYSIWYG_OVERLAY_SCRIPT = `
+// Per-theme swatch sets for the WYSIWYG color popup — pulled from each
+// theme's actual palette (same source as the theme-picker preview cards in
+// new.html), ordered dark-text/light-text/accent first for quick access.
+const THEME_COLOR_PALETTES = {
+  'academic-paper':     ['#1a1814', '#4a4640', '#6d4cff', '#8a857c', '#d8d3c7', '#ece6ff', '#efece5', '#f7f5f0'],
+  'editorial-dark':     ['#f5f5f5', '#b8b8b8', '#6e6e6e', '#3a1f20', '#2e2e2e', '#222222', '#1a1a1a', '#111111'],
+  'modern-minimal':     ['#0a0a0a', '#0066ff', '#525252', '#a3a3a3', '#e5e5e5', '#e6efff', '#fafafa', '#ffffff'],
+  'neon-terminal':      ['#00ff88', '#8fb88f', '#5a7a5a', '#1f2a2e', '#161d20', '#11171a', '#0a0e0f', '#003322'],
+  'paper-press':        ['#141210', '#c43a1d', '#4d463c', '#8a8170', '#c8bca3', '#eee6d4', '#f3dcd4', '#f6f1e7'],
+  'redhat-enterprise':  ['#151515', '#ee0000', '#a60000', '#5f0000', '#4d4d4d', '#a3a3a3', '#37a3a3', '#5e40be'],
+  'redhat-modern-dark': ['#ffffff', '#ee0000', '#a60000', '#37a3a3', '#a3a3a3', '#4d4d4d', '#292929', '#1a1a1a'],
+  'redhat-workshop':    ['#151515', '#ee0000', '#5f0000', '#4d4d4d', '#a3a3a3', '#e0e0e0', '#ffe072', '#f2f2f2'],
+};
+const DEFAULT_COLOR_PALETTE = THEME_COLOR_PALETTES['redhat-enterprise'];
+
+function buildWysiwygOverlayScript(colors) {
+  const paletteJson = JSON.stringify(colors);
+  return `
 <style data-wysiwyg-overlay>
   [data-wysiwyg-hover] { outline: 2px dashed #ee0000 !important; outline-offset: 1px; cursor: pointer; }
   [data-wysiwyg-selected] { outline: 2px solid #ee0000 !important; outline-offset: 1px; }
@@ -488,6 +505,7 @@ const WYSIWYG_OVERLAY_SCRIPT = `
 </style>
 <script data-wysiwyg-overlay>
 (function () {
+  var PALETTE = ${paletteJson};
   var selected = null;
   var toolbar = null;
 
@@ -560,7 +578,11 @@ const WYSIWYG_OVERLAY_SCRIPT = `
       if (!act) return;
       if (act === 'inc' || act === 'dec') {
         var cur = parseFloat(getComputedStyle(el).fontSize) || 16;
-        el.style.fontSize = Math.max(6, cur + (act === 'inc' ? 2 : -2)) + 'px';
+        // setProperty(..., 'important'): some AI-generated slide CSS marks
+        // font-size/color !important on specific classes (e.g. badges,
+        // labels) — a plain inline assignment can never beat !important, so
+        // the change would silently not render at all.
+        el.style.setProperty('font-size', Math.max(6, cur + (act === 'inc' ? 2 : -2)) + 'px', 'important');
         showToolbar(el); // re-show in place, no reload — repeated clicks now keep working
         syncBack();
       } else if (act === 'reset') {
@@ -581,8 +603,7 @@ const WYSIWYG_OVERLAY_SCRIPT = `
     var popup = document.createElement('div');
     popup.id = '__wysiwyg_color_popup';
     popup.setAttribute('data-wysiwyg-overlay', '');
-    var colors = ['#ee0000', '#151515', '#4d4d4d', '#a3a3a3', '#ffffff',
-                  '#0066cc', '#37a3a3', '#5e40be', '#f5921b', '#3e8635'];
+    var colors = PALETTE;
     popup.innerHTML = colors.map(function (c) {
       return '<button class="swatch" data-color="' + c + '" style="background:' + c + '" title="' + c + '"></button>';
     }).join('') + '<input type="color" class="wt-custom-color" title="사용자 지정 색상">';
@@ -599,13 +620,13 @@ const WYSIWYG_OVERLAY_SCRIPT = `
       e.stopPropagation();
       var c = e.target.getAttribute('data-color');
       if (c) {
-        el.style.color = c;
+        el.style.setProperty('color', c, 'important');
         showToolbar(el);
         syncBack();
       }
     });
     popup.addEventListener('input', function (e) {
-      if (e.target.classList.contains('wt-custom-color')) el.style.color = e.target.value;
+      if (e.target.classList.contains('wt-custom-color')) el.style.setProperty('color', e.target.value, 'important');
     });
     popup.addEventListener('change', function (e) {
       if (e.target.classList.contains('wt-custom-color')) {
@@ -693,14 +714,17 @@ const WYSIWYG_OVERLAY_SCRIPT = `
 })();
 <\/script>
 `;
+}
 
 function buildPreviewHtml(rawHtml) {
   const rewritten = rawHtml
     .replaceAll('../../../../redhat/', '/engine/redhat/')
     .replaceAll('src="assets/', 'src="/api/projects/' + projectName + '/assets/');
+  const palette = THEME_COLOR_PALETTES[project && project.theme] || DEFAULT_COLOR_PALETTE;
+  const overlayScript = buildWysiwygOverlayScript(palette);
   return rewritten.includes('</body>')
-    ? rewritten.replace('</body>', WYSIWYG_OVERLAY_SCRIPT + '</body>')
-    : rewritten + WYSIWYG_OVERLAY_SCRIPT;
+    ? rewritten.replace('</body>', overlayScript + '</body>')
+    : rewritten + overlayScript;
 }
 
 function renderPreview(rawHtml) {
