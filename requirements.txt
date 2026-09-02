@@ -5,3 +5,4 @@ pydantic-settings
 aiofiles
 anthropic[vertex]>=0.34.0
 Pillow
+httpx

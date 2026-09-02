@@ -91,6 +91,61 @@ main.content { flex: 1; min-height: 0; display: flex; }
   color: #fff; font-size: 13px; background: rgba(255,255,255,.12); padding: 4px 12px; border-radius: 12px;
 }
 
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 4000; background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-box {
+  background: var(--surface-card); border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,.3);
+  display: flex; flex-direction: column; max-height: 80vh;
+}
+.assets-modal { width: 640px; }
+.modal-header {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border); padding: 4px 8px 4px 16px;
+}
+.modal-tabs { display: flex; gap: 0; }
+.modal-tab {
+  padding: 12px 16px; cursor: pointer; color: var(--text-muted); font-size: 13px; font-weight: 600;
+  border: none; background: none; border-bottom: 2px solid transparent; font-family: inherit;
+}
+.modal-tab.active { color: var(--rh-red); border-bottom-color: var(--rh-red); }
+.modal-close {
+  border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 16px;
+  width: 32px; height: 32px; border-radius: 4px;
+}
+.modal-close:hover { background: var(--surface); color: var(--text); }
+.modal-body { flex: 1; overflow-y: auto; padding: 16px; }
+.assets-search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.assets-search-row input[type="text"] {
+  flex: 1; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border-strong);
+  border-radius: 4px; font-size: 13px; font-family: inherit;
+}
+.assets-file-list { display: flex; flex-direction: column; gap: 6px; }
+.assets-file-row {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 4px; font-size: 12px;
+}
+.assets-file-row .af-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assets-file-row .af-size { color: var(--text-muted); flex-shrink: 0; }
+.assets-file-row button {
+  border: none; background: var(--surface); color: var(--text-muted); cursor: pointer;
+  border-radius: 3px; padding: 4px 8px; font-size: 11px; flex-shrink: 0;
+}
+.assets-file-row button:hover { background: var(--rh-red-tint); color: var(--rh-red); }
+.assets-empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 24px 0; }
+.assets-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.assets-grid-item {
+  border: 1px solid var(--border); border-radius: 6px; overflow: hidden; cursor: pointer;
+  background: var(--surface); display: flex; flex-direction: column;
+}
+.assets-grid-item:hover { border-color: var(--rh-red); }
+.assets-grid-item img { width: 100%; height: 70px; object-fit: contain; background: #fff; display: block; }
+.assets-grid-item .agi-label {
+  font-size: 10px; color: var(--text-muted); padding: 4px 6px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+
 .slide-main { height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; background: var(--surface-card); }
 .toolbar {
   flex-shrink: 0;
@@ -296,6 +351,10 @@ main.content { flex: 1; min-height: 0; display: flex; }
                 이미지 업로드
               </button>
               <input type="file" id="assetUploadInput" accept="image/*" style="display:none">
+              <button type="button" class="btn" onclick="openAssetsModal()" title="파일 관리·로고 검색·사진 검색">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><circle cx="9" cy="10" r="2"/><path d="M4 16l4.5-4.5a1.5 1.5 0 0 1 2 0L16 17"/><path d="M14 14l1.5-1.5a1.5 1.5 0 0 1 2 0L20 15"/></svg>
+                에셋
+              </button>
               <button class="btn" id="imageGenBtn" onclick="showImageGenStub()" title="이미지 생성 (준비 중)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
                 이미지 생성
@@ -324,6 +383,49 @@ main.content { flex: 1; min-height: 0; display: flex; }
   <iframe id="presentFrame" scrolling="no"></iframe>
   <button class="present-nav present-next" onclick="presentStep(1)" title="다음 (→)">›</button>
   <div class="present-counter" id="presentCounter"></div>
+</div>
+
+<div class="modal-overlay" id="assetsModal" style="display:none">
+  <div class="modal-box assets-modal">
+    <div class="modal-header">
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-tab="files" onclick="switchAssetsTab('files')">내 파일</button>
+        <button class="modal-tab" data-tab="logos" onclick="switchAssetsTab('logos')">로고 검색</button>
+        <button class="modal-tab" data-tab="photos" onclick="switchAssetsTab('photos')">사진 검색</button>
+      </div>
+      <button class="modal-close" onclick="closeAssetsModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="assetsFilesTab" class="assets-tab-panel">
+        <div class="assets-search-row">
+          <button class="btn btn-sm" onclick="document.getElementById('assetUploadInput').click()">+ 업로드</button>
+        </div>
+        <div id="assetsFileList" class="assets-file-list"></div>
+      </div>
+      <div id="assetsLogosTab" class="assets-tab-panel" style="display:none">
+        <div class="assets-search-row">
+          <input type="text" id="logoSearchInput" placeholder="로고 이름 검색 (예: github, slack, redhat)">
+        </div>
+        <div id="logoResults" class="assets-grid"></div>
+      </div>
+      <div id="assetsPhotosTab" class="assets-tab-panel" style="display:none">
+        <div id="unsplashSetup" style="display:none">
+          <p class="form-hint">Unsplash API 키가 등록되지 않았습니다. <a href="https://unsplash.com/developers" target="_blank" rel="noopener">Unsplash 개발자 페이지</a>에서 Access Key를 발급받아 등록하세요.</p>
+          <div class="assets-search-row">
+            <input type="text" id="unsplashKeyInput" placeholder="Access Key 입력">
+            <button class="btn btn-sm btn-primary" onclick="saveUnsplashKey()">등록</button>
+          </div>
+        </div>
+        <div id="unsplashSearchArea" style="display:none">
+          <div class="assets-search-row">
+            <input type="text" id="photoSearchInput" placeholder="사진 검색 (예: technology, office)">
+            <button class="btn btn-sm" onclick="clearUnsplashKey()" title="등록된 키 삭제">키 삭제</button>
+          </div>
+          <div id="photoResults" class="assets-grid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1647,11 +1749,176 @@ document.getElementById('assetUploadInput').addEventListener('change', async (e)
     const data = await res.json();
     htmlCM.replaceSelection('<img src="assets/' + data.filename + '" alt="">');
     showToast('업로드 완료 — 커서 위치에 <img> 태그를 삽입했습니다.');
+    if (document.getElementById('assetsModal').style.display !== 'none') loadAssetsFileList();
   } else {
     showToast('업로드 실패', true);
   }
   e.target.value = '';
 });
+
+// ── Assets modal: 내 파일 / 로고 검색 / 사진 검색 ──
+
+function insertAssetTag(filename) {
+  if (!currentSlide) { showToast('먼저 슬라이드를 선택하세요.', true); return; }
+  htmlCM.replaceSelection('<img src="assets/' + filename + '" alt="">');
+  showToast('커서 위치에 <img> 태그를 삽입했습니다.');
+}
+
+function formatBytes(n) {
+  if (n < 1024) return n + 'B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'KB';
+  return (n / 1024 / 1024).toFixed(1) + 'MB';
+}
+
+async function loadAssetsFileList() {
+  const list = document.getElementById('assetsFileList');
+  list.innerHTML = '<div class="assets-empty">불러오는 중...</div>';
+  const res = await fetch('/api/projects/' + projectName + '/assets');
+  if (!res.ok) { list.innerHTML = '<div class="assets-empty">목록을 불러오지 못했습니다.</div>'; return; }
+  const assets = await res.json();
+  if (!assets.length) { list.innerHTML = '<div class="assets-empty">업로드된 파일이 없습니다.</div>'; return; }
+  list.innerHTML = '';
+  assets.forEach((a) => {
+    const row = document.createElement('div');
+    row.className = 'assets-file-row';
+    row.innerHTML =
+      '<span class="af-name" title="' + a.name + '">' + a.name + '</span>' +
+      '<span class="af-size">' + formatBytes(a.size) + '</span>' +
+      '<button data-act="insert">삽입</button>' +
+      '<button data-act="copy">경로복사</button>' +
+      '<button data-act="rename">이름변경</button>' +
+      '<button data-act="delete">삭제</button>';
+    row.querySelector('[data-act="insert"]').onclick = () => insertAssetTag(a.name);
+    row.querySelector('[data-act="copy"]').onclick = () => {
+      navigator.clipboard.writeText('assets/' + a.name);
+      showToast('경로를 복사했습니다.');
+    };
+    row.querySelector('[data-act="rename"]').onclick = async () => {
+      const next = prompt('새 파일명을 입력하세요.', a.name);
+      if (!next || next === a.name) return;
+      const r = await fetch('/api/projects/' + projectName + '/assets/rename', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({old_filename: a.name, new_filename: next}),
+      });
+      if (r.ok) { showToast('이름을 변경했습니다.'); loadAssetsFileList(); }
+      else { const d = await r.json(); showToast('이름 변경 실패: ' + (d.detail || ''), true); }
+    };
+    row.querySelector('[data-act="delete"]').onclick = async () => {
+      if (!confirm('"' + a.name + '" 파일을 삭제하시겠습니까?')) return;
+      const r = await fetch('/api/projects/' + projectName + '/assets/' + encodeURIComponent(a.name), {method: 'DELETE'});
+      if (r.ok) { showToast('삭제했습니다.'); loadAssetsFileList(); }
+      else { showToast('삭제 실패', true); }
+    };
+    list.appendChild(row);
+  });
+}
+
+function openAssetsModal() {
+  document.getElementById('assetsModal').style.display = 'flex';
+  switchAssetsTab('files');
+}
+function closeAssetsModal() {
+  document.getElementById('assetsModal').style.display = 'none';
+}
+function switchAssetsTab(tab) {
+  document.querySelectorAll('.modal-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('assetsFilesTab').style.display = tab === 'files' ? 'block' : 'none';
+  document.getElementById('assetsLogosTab').style.display = tab === 'logos' ? 'block' : 'none';
+  document.getElementById('assetsPhotosTab').style.display = tab === 'photos' ? 'block' : 'none';
+  if (tab === 'files') loadAssetsFileList();
+  else if (tab === 'photos') checkUnsplashStatus();
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+async function importAssetFromUrl(url, filename, onDone) {
+  const res = await fetch('/api/projects/' + projectName + '/assets/import-url', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url, filename}),
+  });
+  if (res.ok) {
+    const data = await res.json();
+    insertAssetTag(data.filename);
+    if (onDone) onDone();
+  } else {
+    const d = await res.json();
+    showToast('가져오기 실패: ' + (d.detail || ''), true);
+  }
+}
+
+const runLogoSearch = debounce(async (q) => {
+  const results = document.getElementById('logoResults');
+  if (!q.trim()) { results.innerHTML = ''; return; }
+  results.innerHTML = '<div class="assets-empty">검색 중...</div>';
+  const res = await fetch('/api/logos/search?q=' + encodeURIComponent(q));
+  const items = res.ok ? await res.json() : [];
+  if (!items.length) { results.innerHTML = '<div class="assets-empty">검색 결과가 없습니다.</div>'; return; }
+  results.innerHTML = '';
+  items.forEach((item) => {
+    const cell = document.createElement('div');
+    cell.className = 'assets-grid-item';
+    cell.innerHTML = '<img src="' + item.url + '" alt="' + item.name + '"><span class="agi-label">' + item.name + '</span>';
+    cell.onclick = () => {
+      const ext = (item.url.split('.').pop() || 'svg').split('?')[0].slice(0, 5);
+      importAssetFromUrl(item.url, item.name + '.' + ext);
+    };
+    results.appendChild(cell);
+  });
+}, 400);
+document.getElementById('logoSearchInput').addEventListener('input', (e) => runLogoSearch(e.target.value));
+
+async function checkUnsplashStatus() {
+  const res = await fetch('/api/unsplash/status');
+  const data = res.ok ? await res.json() : {configured: false};
+  document.getElementById('unsplashSetup').style.display = data.configured ? 'none' : 'block';
+  document.getElementById('unsplashSearchArea').style.display = data.configured ? 'block' : 'none';
+}
+
+async function saveUnsplashKey() {
+  const key = document.getElementById('unsplashKeyInput').value.trim();
+  if (!key) return;
+  const res = await fetch('/api/unsplash/key', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({api_key: key}),
+  });
+  if (res.ok) { showToast('Unsplash 키를 등록했습니다.'); checkUnsplashStatus(); }
+  else { const d = await res.json(); showToast('등록 실패: ' + (d.detail || ''), true); }
+}
+
+async function clearUnsplashKey() {
+  if (!confirm('등록된 Unsplash API 키를 삭제하시겠습니까?')) return;
+  await fetch('/api/unsplash/key', {method: 'DELETE'});
+  showToast('키를 삭제했습니다.');
+  checkUnsplashStatus();
+}
+
+const runPhotoSearch = debounce(async (q) => {
+  const results = document.getElementById('photoResults');
+  if (!q.trim()) { results.innerHTML = ''; return; }
+  results.innerHTML = '<div class="assets-empty">검색 중...</div>';
+  const res = await fetch('/api/unsplash/search?q=' + encodeURIComponent(q));
+  if (!res.ok) { const d = await res.json(); results.innerHTML = '<div class="assets-empty">' + (d.detail || '검색 실패') + '</div>'; return; }
+  const data = await res.json();
+  if (!data.results.length) { results.innerHTML = '<div class="assets-empty">검색 결과가 없습니다.</div>'; return; }
+  results.innerHTML = '';
+  data.results.forEach((photo) => {
+    const cell = document.createElement('div');
+    cell.className = 'assets-grid-item';
+    cell.innerHTML = '<img src="' + photo.thumb + '" alt="' + photo.author + '"><span class="agi-label">' + photo.author + '</span>';
+    cell.onclick = () => {
+      importAssetFromUrl(photo.regular, 'unsplash-' + photo.id + '.jpg', () => {
+        fetch('/api/unsplash/track-download', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({download_location: photo.download_location}),
+        });
+      });
+    };
+    results.appendChild(cell);
+  });
+}, 500);
+document.getElementById('photoSearchInput').addEventListener('input', (e) => runPhotoSearch(e.target.value));
 
 async function saveSlideHtml() {
   if (!currentSlide) return;

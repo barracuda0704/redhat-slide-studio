@@ -2,12 +2,13 @@ import asyncio
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .config import settings
+from .config import settings, get_unsplash_key, save_unsplash_key, clear_unsplash_key
 from .models import User, UserRole, UserStatus
 from .projects import ProjectManager
 from .users import UserManager
@@ -59,7 +60,11 @@ def get_current_user(request: Request) -> User:
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role != UserRole.ADMIN:
+    # Single-tenant deployments (LOGIN_DISABLED) only ever have the synthetic
+    # service account, which is role=USER — without this bypass every
+    # admin-gated endpoint (e.g. Unsplash key registration) would be
+    # permanently unreachable in the mode this app actually runs in.
+    if not settings.LOGIN_DISABLED and user.role != UserRole.ADMIN:
         raise HTTPException(403, "관리자 권한이 필요합니다.")
     return user
 
@@ -527,6 +532,19 @@ async def api_export_pdf_download(name: str, _: User = Depends(get_current_user)
 
 # ── Assets API ──
 
+class RenameAssetRequest(BaseModel):
+    old_filename: str
+    new_filename: str
+
+
+@app.get("/api/projects/{name}/assets")
+async def api_list_assets(name: str, _: User = Depends(get_current_user)):
+    try:
+        return project_manager.list_assets(name)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 @app.get("/api/projects/{name}/assets/{filename:path}")
 async def api_asset(name: str, filename: str):
     try:
@@ -546,6 +564,144 @@ async def api_upload_asset(name: str, file: UploadFile = File(...), _: User = De
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"filename": saved_name}
+
+
+@app.post("/api/projects/{name}/assets/rename")
+async def api_rename_asset(name: str, body: RenameAssetRequest, _: User = Depends(get_current_user)):
+    try:
+        new_name = project_manager.rename_asset(name, body.old_filename, body.new_filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"filename": new_name}
+
+
+@app.delete("/api/projects/{name}/assets/{filename:path}")
+async def api_delete_asset(name: str, filename: str, _: User = Depends(get_current_user)):
+    try:
+        project_manager.delete_asset(name, filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "deleted"}
+
+
+class ImportAssetUrlRequest(BaseModel):
+    url: str
+    filename: str
+
+
+@app.post("/api/projects/{name}/assets/import-url")
+async def api_import_asset_url(name: str, body: ImportAssetUrlRequest, _: User = Depends(get_current_user)):
+    # Fetches server-side (not from the browser) so logo/stock-photo imports
+    # never hit CORS, and the result flows through the same save_asset()
+    # path as a manual upload.
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            res = await client.get(body.url)
+        res.raise_for_status()
+    except httpx.HTTPError as e:
+        raise HTTPException(400, f"이미지를 가져오지 못했습니다: {e}")
+    try:
+        saved_name = project_manager.save_asset(name, body.filename, res.content)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"filename": saved_name}
+
+
+# ── Logo/icon search (SVGL — free public API, no key required) ──
+
+@app.get("/api/logos/search")
+async def api_logo_search(q: str, _: User = Depends(get_current_user)):
+    if not q.strip():
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            res = await client.get("https://api.svgl.app", params={"search": q})
+        res.raise_for_status()
+        items = res.json()
+    except httpx.HTTPError:
+        return []
+    results = []
+    for item in items:
+        route = item.get("route")
+        url = route.get("light") if isinstance(route, dict) else route
+        if url:
+            results.append({"name": item.get("title", q), "url": url})
+    return results[:30]
+
+
+# ── Unsplash stock photo search ──
+# The access key is registered later by the user (Settings 화면), not baked
+# in here — see config.get_unsplash_key()/save_unsplash_key().
+
+@app.get("/api/unsplash/status")
+async def api_unsplash_status(_: User = Depends(get_current_user)):
+    return {"configured": bool(get_unsplash_key())}
+
+
+class UnsplashKeyRequest(BaseModel):
+    api_key: str
+
+
+@app.post("/api/unsplash/key")
+async def api_unsplash_save_key(body: UnsplashKeyRequest, _: User = Depends(require_admin)):
+    if not body.api_key.strip():
+        raise HTTPException(400, "API 키를 입력하세요.")
+    save_unsplash_key(body.api_key)
+    return {"status": "ok"}
+
+
+@app.delete("/api/unsplash/key")
+async def api_unsplash_clear_key(_: User = Depends(require_admin)):
+    clear_unsplash_key()
+    return {"status": "ok"}
+
+
+@app.get("/api/unsplash/search")
+async def api_unsplash_search(q: str, page: int = 1, per_page: int = 20, _: User = Depends(get_current_user)):
+    key = get_unsplash_key()
+    if not key:
+        raise HTTPException(400, "Unsplash API 키가 등록되지 않았습니다. 설정에서 먼저 등록하세요.")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.get(
+                "https://api.unsplash.com/search/photos",
+                params={"query": q, "page": page, "per_page": per_page},
+                headers={"Authorization": f"Client-ID {key}"},
+            )
+        res.raise_for_status()
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Unsplash 검색 실패: {e}")
+    data = res.json()
+    results = [
+        {
+            "id": r["id"],
+            "thumb": r["urls"]["thumb"],
+            "regular": r["urls"]["regular"],
+            "download_location": r["links"]["download_location"],
+            "author": r["user"]["name"],
+        }
+        for r in data.get("results", [])
+    ]
+    return {"results": results, "total_pages": data.get("total_pages", 0)}
+
+
+class UnsplashTrackRequest(BaseModel):
+    download_location: str
+
+
+@app.post("/api/unsplash/track-download")
+async def api_unsplash_track_download(body: UnsplashTrackRequest, _: User = Depends(get_current_user)):
+    # Required by Unsplash's API terms whenever a photo is actually used,
+    # separate from the search call itself.
+    key = get_unsplash_key()
+    if not key:
+        return {"status": "skipped"}
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            await client.get(body.download_location, headers={"Authorization": f"Client-ID {key}"})
+    except httpx.HTTPError:
+        pass
+    return {"status": "ok"}
 
 
 # ── Themes API ──

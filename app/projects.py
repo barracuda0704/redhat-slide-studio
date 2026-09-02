@@ -370,6 +370,40 @@ class ProjectManager:
         target.write_bytes(data)
         return safe_name
 
+    def list_assets(self, name: str, version: str = "v1.0") -> list[dict]:
+        assets_dir = self._version_dir(name, version) / "assets"
+        if not assets_dir.exists():
+            return []
+        items = []
+        for f in sorted(assets_dir.iterdir()):
+            if f.is_file():
+                stat = f.stat()
+                items.append({
+                    "name": f.name,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                })
+        return items
+
+    def rename_asset(self, name: str, old_filename: str, new_filename: str, version: str = "v1.0") -> str:
+        assets_dir = self._version_dir(name, version) / "assets"
+        old_path = assets_dir / _validate_asset_filename(old_filename)
+        if not old_path.exists():
+            raise ValueError(f"자산을 찾을 수 없습니다: {old_filename}")
+        new_safe = _sanitize_asset_filename(new_filename)
+        if not os.path.splitext(new_safe)[1]:
+            new_safe += os.path.splitext(old_filename)[1]
+        new_path = assets_dir / new_safe
+        if new_path != old_path and new_path.exists():
+            raise ValueError(f"이미 존재하는 파일명입니다: {new_safe}")
+        old_path.rename(new_path)
+        return new_safe
+
+    def delete_asset(self, name: str, filename: str, version: str = "v1.0") -> None:
+        path = self._version_dir(name, version) / "assets" / _validate_asset_filename(filename)
+        if path.exists():
+            path.unlink()
+
     def build_pptx(self, name: str, version: str = "v1.0") -> str:
         _validate_name(name)
         _validate_version(version)

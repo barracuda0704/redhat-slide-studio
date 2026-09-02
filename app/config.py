@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -28,3 +29,31 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# Unsplash API key: stored as its own file under DATA_DIR (not the process
+# .env) so it can be registered/cleared at runtime without needing a
+# restart to pick up a changed pydantic Settings value.
+def _unsplash_key_path() -> Path:
+    return Path(settings.DATA_DIR) / "unsplash_key.txt"
+
+
+def get_unsplash_key() -> str:
+    p = _unsplash_key_path()
+    return p.read_text("utf-8").strip() if p.exists() else ""
+
+
+def save_unsplash_key(key: str) -> None:
+    p = _unsplash_key_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(key.strip(), encoding="utf-8")
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass
+
+
+def clear_unsplash_key() -> None:
+    p = _unsplash_key_path()
+    if p.exists():
+        p.unlink()
