@@ -21,6 +21,7 @@
 html, body { height: 100%; }
 body { display: flex; flex-direction: column; overflow: hidden; }
 .masthead { flex-shrink: 0; }
+.masthead.nav-locked { opacity: .55; pointer-events: none; }
 main.content { flex: 1; min-height: 0; display: flex; }
 
 .project-layout { flex: 1; min-height: 0; width: 100%; display: grid; grid-template-columns: 240px 1fr; gap: 0; background: var(--surface-card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
@@ -55,7 +56,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
   display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; flex-wrap: wrap;
 }
-.toolbar.nav-locked, .html-toolbar.nav-locked { opacity: .55; pointer-events: none; }
+.toolbar.nav-locked, .html-toolbar.nav-locked, .ai-edit-bar.nav-locked, .html-accordion.nav-locked { opacity: .55; pointer-events: none; }
 .toolbar .btn { font-size: 13px; padding: 7px 14px; }
 .toolbar .status-badge {
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
@@ -481,6 +482,8 @@ function buildWysiwygOverlayScript(colors) {
     cursor: pointer; font-size: 11px; line-height: 1; font-family: inherit;
   }
   #__wysiwyg_toolbar button:hover { background: #ee0000; }
+  #__wysiwyg_toolbar button:disabled { cursor: default; }
+  #__wysiwyg_toolbar button:disabled:hover { background: #2b2b2b; }
   #__wysiwyg_toolbar .wt-label { color: #9aa0a6; padding: 0 2px; }
   #__wysiwyg_toolbar .wt-color-swatch {
     width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid #444; cursor: pointer;
@@ -507,6 +510,7 @@ function buildWysiwygOverlayScript(colors) {
     pointer-events: none;
   }
   [data-wysiwyg-new] { outline: 2px dashed #ee0000 !important; outline-offset: 1px; }
+  #__wysiwyg_lock_scrim { position: fixed; inset: 0; z-index: 999997; cursor: not-allowed; }
 </style>
 <script data-wysiwyg-overlay>
 (function () {
@@ -514,6 +518,7 @@ function buildWysiwygOverlayScript(colors) {
   var selected = null;
   var toolbar = null;
   var suppressNextClick = false; // set right after creating a new text box, so the click that follows mouseup doesn't immediately clearSelection() it away
+  var pendingNewEl = null; // a just-created, not-yet-submitted text box — discarded if the user abandons it instead of typing something
 
   function isEditable(el) { return el && /^(P|H1|H2|H3|H4|H5|H6|LI|IMG)$/.test(el.tagName); }
   function closestEditable(el) {
@@ -525,7 +530,19 @@ function buildWysiwygOverlayScript(colors) {
     var p = document.getElementById('__wysiwyg_color_popup');
     if (p) p.remove();
   }
+  // A box created by clicking/dragging empty space is never synced into the
+  // saved HTML until the user actually submits content for it — if they
+  // click away or cancel first, just remove it instead of leaving an empty
+  // "새 텍스트" placeholder sitting on the slide forever.
+  function discardPendingNew() {
+    if (pendingNewEl) {
+      pendingNewEl.remove();
+      if (selected === pendingNewEl) selected = null;
+      pendingNewEl = null;
+    }
+  }
   function clearSelection() {
+    discardPendingNew();
     if (selected) selected.removeAttribute('data-wysiwyg-selected');
     selected = null;
     removeToolbar();
@@ -552,6 +569,11 @@ function buildWysiwygOverlayScript(colors) {
   }
 
   function showToolbar(el) {
+    // Switching a not-yet-submitted new box into the normal font/color
+    // toolbar (e.g. the user clicked its placeholder text instead of typing
+    // into the AI popup) means they're now directly editing it — it's no
+    // longer an inert, safe-to-discard placeholder.
+    if (pendingNewEl && pendingNewEl.contains(el)) pendingNewEl = null;
     removeToolbar();
     removeColorPopup();
     var rect = el.getBoundingClientRect();
@@ -561,15 +583,19 @@ function buildWysiwygOverlayScript(colors) {
     toolbar.style.left = Math.max(4, rect.left) + 'px';
     toolbar.style.top = Math.max(4, rect.top - 36) + 'px';
     if (el.tagName === 'IMG') {
-      toolbar.innerHTML = '<span class="wt-label">드래그로 이동</span><button data-act="ai">AI 수정</button>';
+      toolbar.innerHTML = '<span class="wt-label">드래그로 이동</span><button data-act="ai">AI 수정</button><button data-act="delete" title="삭제">삭제</button>';
     } else {
       var curColor = rgbToHex(getComputedStyle(el).color);
       toolbar.innerHTML =
         '<button data-act="dec" title="글자 작게">A-</button>' +
         '<button data-act="inc" title="글자 크게">A+</button>' +
         '<button data-act="reset" title="기본 크기로">↺</button>' +
+        '<button data-act="bold" title="굵게" style="font-weight:900">B</button>' +
+        '<button data-act="italic" title="기울임" style="font-style:italic">I</button>' +
+        '<button data-act="strike" title="취소선" style="text-decoration:line-through">S</button>' +
         '<button data-act="color-toggle" class="wt-color-swatch" style="background:' + curColor + '" title="글자색"></button>' +
-        '<button data-act="ai">AI 수정</button>';
+        '<button data-act="ai">AI 수정</button>' +
+        '<button data-act="delete" title="삭제">삭제</button>';
     }
     document.body.appendChild(toolbar);
     toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
@@ -595,10 +621,29 @@ function buildWysiwygOverlayScript(colors) {
         el.style.removeProperty('font-size');
         showToolbar(el);
         syncBack();
+      } else if (act === 'bold') {
+        var isBold = parseInt(getComputedStyle(el).fontWeight, 10) >= 700;
+        el.style.setProperty('font-weight', isBold ? '400' : '700', 'important');
+        showToolbar(el);
+        syncBack();
+      } else if (act === 'italic') {
+        var isItalic = getComputedStyle(el).fontStyle === 'italic';
+        el.style.setProperty('font-style', isItalic ? 'normal' : 'italic', 'important');
+        showToolbar(el);
+        syncBack();
+      } else if (act === 'strike') {
+        var hasStrike = getComputedStyle(el).textDecorationLine.indexOf('line-through') !== -1;
+        el.style.setProperty('text-decoration', hasStrike ? 'none' : 'line-through', 'important');
+        showToolbar(el);
+        syncBack();
       } else if (act === 'color-toggle') {
         showColorPopup(el, toolbar);
       } else if (act === 'ai') {
         showAiInput(el);
+      } else if (act === 'delete') {
+        el.remove();
+        clearSelection();
+        syncBack();
       }
     });
   }
@@ -671,6 +716,11 @@ function buildWysiwygOverlayScript(colors) {
       submitBtn.disabled = true;
       cancelBtn.disabled = true;
       submitBtn.textContent = '적용 중...';
+      // Once actually submitted it's no longer an abandon-on-click-away
+      // candidate — a click elsewhere shouldn't yank it out from under an
+      // in-flight request. (Restored on failure below so it stays
+      // discardable if the request didn't pan out.)
+      if (isNew) pendingNewEl = null;
       var fullInstruction = isNew
         ? '새로 추가된 빈 텍스트 상자에 다음 내용을 채워넣어 주세요 (위치·크기는 유지): ' + instruction
         : instruction;
@@ -686,6 +736,7 @@ function buildWysiwygOverlayScript(colors) {
       submitBtn.disabled = false;
       cancelBtn.disabled = false;
       submitBtn.textContent = '적용';
+      if (isNew) pendingNewEl = el;
     };
     toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
     // Same fix as showToolbar()'s click handler — without stopping
@@ -700,7 +751,7 @@ function buildWysiwygOverlayScript(colors) {
       var act = e.target.getAttribute('data-act');
       if (act === 'ai-submit') submit();
       else if (act === 'ai-cancel') {
-        if (isNew) { el.remove(); clearSelection(); syncBack(); }
+        if (isNew) { discardPendingNew(); clearSelection(); }
         else showToolbar(el);
       }
     });
@@ -716,6 +767,7 @@ function buildWysiwygOverlayScript(colors) {
     if (suppressNextClick) { suppressNextClick = false; return; }
     var el = closestEditable(e.target);
     if (!el) { clearSelection(); return; }
+    if (pendingNewEl && !pendingNewEl.contains(el)) discardPendingNew();
     e.preventDefault();
     if (selected) selected.removeAttribute('data-wysiwyg-selected');
     selected = el;
@@ -764,6 +816,7 @@ function buildWysiwygOverlayScript(colors) {
   var dragEl = null, dragBox = null, dragStartX = 0, dragStartY = 0, dragOffX = 0, dragOffY = 0, dragMoved = false;
   document.addEventListener('mousedown', function (e) {
     if (e.target.tagName !== 'IMG') return;
+    discardPendingNew();
     dragEl = e.target;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
@@ -824,6 +877,7 @@ function buildWysiwygOverlayScript(colors) {
     if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
     if (e.target.tagName === 'IMG') return;
     if (closestEditable(e.target)) return;
+    if (pendingNewEl && !pendingNewEl.contains(e.target)) discardPendingNew();
     addStart = { x: e.clientX, y: e.clientY };
   });
   document.addEventListener('mousemove', function (e) {
@@ -862,11 +916,31 @@ function buildWysiwygOverlayScript(colors) {
     addStart = null;
     clearSelection();
     var el = createTextBoxAt(left, top, w);
+    pendingNewEl = el;
     selected = el;
     el.setAttribute('data-wysiwyg-selected', '');
     suppressNextClick = true;
     showAiInput(el, true);
   });
+
+  // Called from the parent frame while any AI-edit request (bar or popup)
+  // for this slide is in flight, so the user can't select/drag/add anything
+  // else out from under it. A full-viewport scrim below the toolbar's own
+  // z-index blocks every other pointer interaction without touching each
+  // handler individually.
+  window.__wysiwygSetLocked = function (locked) {
+    var scrim = document.getElementById('__wysiwyg_lock_scrim');
+    if (locked) {
+      if (!scrim) {
+        scrim = document.createElement('div');
+        scrim.id = '__wysiwyg_lock_scrim';
+        scrim.setAttribute('data-wysiwyg-overlay', '');
+        document.body.appendChild(scrim);
+      }
+    } else if (scrim) {
+      scrim.remove();
+    }
+  };
 })();
 <\/script>
 `;
@@ -1102,10 +1176,18 @@ function resetWysiwygBusyState() {
 }
 
 function setNavigationLocked(locked) {
+  document.querySelector('.masthead').classList.toggle('nav-locked', locked);
   document.querySelector('.slide-sidebar').classList.toggle('nav-locked', locked);
   document.querySelector('.tab-bar').classList.toggle('nav-locked', locked);
   document.querySelector('.toolbar').classList.toggle('nav-locked', locked);
-  document.querySelector('.html-toolbar').classList.toggle('nav-locked', locked);
+  document.querySelector('.ai-edit-bar').classList.toggle('nav-locked', locked);
+  document.querySelector('.html-accordion').classList.toggle('nav-locked', locked);
+  // Also freeze the WYSIWYG overlay inside the preview iframe — otherwise
+  // the outer chrome is locked but the user could still select/drag/add
+  // elements on the slide itself while a request for it is in flight.
+  const frame = document.getElementById('previewFrame');
+  const win = frame && frame.contentWindow;
+  if (win && win.__wysiwygSetLocked) win.__wysiwygSetLocked(locked);
 }
 
 document.getElementById('aiEditInput').addEventListener('keydown', (e) => {
