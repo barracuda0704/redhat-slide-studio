@@ -220,6 +220,22 @@ main.content { flex: 1; min-height: 0; display: flex; }
 }
 .preview-empty { color: var(--text-muted); font-size: 14px; }
 
+/* Image-gen region select: the iframe goes pointer-events:none so the drag
+   never reaches anything inside the slide (no hover outline, no accidental
+   select-and-open-toolbar on a short drag) — same technique the reference
+   gallery's region tool uses. */
+.preview-container.imagegen-mode { cursor: crosshair; }
+.preview-container.imagegen-mode iframe { pointer-events: none; }
+.imagegen-rubber {
+  position: absolute; z-index: 50; border: 2px dashed var(--rh-red); background: rgba(238,0,0,.08);
+  box-sizing: border-box; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.imagegen-rubber.loading { background: rgba(0,0,0,.6); }
+.imagegen-rubber.loading span {
+  color: #fff; font-size: 12px; font-family: -apple-system, "Segoe UI", sans-serif;
+}
+
 .html-accordion { flex-shrink: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); }
 .html-accordion-header {
   display: flex; align-items: center; gap: 8px; padding: 10px 16px; cursor: pointer;
@@ -448,6 +464,23 @@ main.content { flex: 1; min-height: 0; display: flex; }
           </div>
           <div id="photoResults" class="assets-grid"></div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="imageGenModal" style="display:none" onclick="if(event.target===this) closeImageGenModal()">
+  <div class="modal-box" style="width:420px;">
+    <div class="modal-header">
+      <strong>🖼️ 영역에 넣을 이미지</strong>
+      <button class="modal-close" onclick="closeImageGenModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <textarea id="imageGenPromptInput" rows="4" placeholder="이 영역에 넣을 이미지를 설명하세요 (예: 중앙에서 여러 갈래로 뻗는 추상 네트워크, 레드햇 톤)"
+        style="width:100%; box-sizing:border-box; resize:vertical; font-family:inherit; font-size:13px; padding:8px; border:1px solid var(--border); border-radius:4px;"></textarea>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+        <button class="btn" onclick="closeImageGenModal()">취소</button>
+        <button class="btn btn-primary" onclick="submitImageGen()">생성</button>
       </div>
     </div>
   </div>
@@ -730,16 +763,6 @@ function buildWysiwygOverlayScript(colors) {
     width: 22px; height: 22px; padding: 0; border: none; border-radius: 5px; cursor: pointer; background: none;
   }
   #__wysiwyg_lock_scrim { position: fixed; inset: 0; z-index: 999997; cursor: not-allowed; }
-  #__wysiwyg_imagegen_box {
-    position: absolute; z-index: 999998; border: 2px dashed #ee0000; background: rgba(238,0,0,.08);
-    box-sizing: border-box; pointer-events: none;
-    display: flex; align-items: center; justify-content: center;
-  }
-  #__wysiwyg_imagegen_box .ig-status {
-    background: #151515; color: #fff; font-family: -apple-system, "Segoe UI", sans-serif;
-    font-size: 11px; padding: 4px 8px; border-radius: 4px; display: none;
-  }
-  #__wysiwyg_imagegen_box.ig-loading .ig-status { display: block; }
   .wt-resize-handle {
     position: fixed; z-index: 999999; width: 6px; height: 6px; background: #fff;
     border: 1.5px solid #ee0000; border-radius: 2px; transform: translate(-50%, -50%);
@@ -1342,7 +1365,6 @@ function buildWysiwygOverlayScript(colors) {
   var dragEl = null, dragBox = null, dragStartX = 0, dragStartY = 0, dragOffX = 0, dragOffY = 0, dragMoved = false;
   var dragChromeStart = null; // toolbar/handle starting positions, snapshotted once per drag — see mousemove below
   document.addEventListener('mousedown', function (e) {
-    if (imageGenMode) { igMouseDown(e); return; }
     // Any non-text element is drag-to-reposition-able now (images, shapes,
     // cards) — text leaves stay click-only (select for font editing).
     if (e.target === document.body || isTextLeaf(e.target)) return;
@@ -1356,7 +1378,6 @@ function buildWysiwygOverlayScript(colors) {
     // layout untouched.
   });
   document.addEventListener('mousemove', function (e) {
-    if (imageGenMode) { igMouseMove(e); return; }
     if (!dragEl) return;
     if (!dragMoved) {
       if (Math.abs(e.clientX - dragStartX) < DRAG_THRESHOLD && Math.abs(e.clientY - dragStartY) < DRAG_THRESHOLD) return;
@@ -1395,7 +1416,6 @@ function buildWysiwygOverlayScript(colors) {
     }
   });
   document.addEventListener('mouseup', function (e) {
-    if (imageGenMode) { igMouseUp(e); return; }
     if (dragEl && dragMoved) {
       syncBack();
       // One full rebuild now that dragging is done — re-clamps the toolbar
@@ -1408,151 +1428,25 @@ function buildWysiwygOverlayScript(colors) {
     dragChromeStart = null;
   });
 
-  // ── Image generation: drag-select a region on the slide, describe it,
-  // and insert the generated image at exactly that spot ──
-  var imageGenMode = false;
-  var igBox = null;
-  var igStartX = 0, igStartY = 0;
-  var igRegion = null; // {left,top,width,height} in % of body — kept until insert/fail resolves it
-
-  window.__wysiwygSetImageGenMode = function (v) {
-    imageGenMode = !!v;
-    document.body.style.cursor = imageGenMode ? 'crosshair' : '';
-    if (!imageGenMode) { removeImageGenBox(); igRegion = null; }
-  };
-
-  function removeImageGenBox() {
-    if (igBox) { igBox.remove(); igBox = null; }
-  }
-
-  function igMouseDown(e) {
-    if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
-    e.preventDefault();
-    removeImageGenBox();
-    igStartX = e.clientX;
-    igStartY = e.clientY;
-    igBox = document.createElement('div');
-    igBox.id = '__wysiwyg_imagegen_box';
-    igBox.setAttribute('data-wysiwyg-overlay', '');
-    igBox.style.left = igStartX + 'px';
-    igBox.style.top = igStartY + 'px';
-    igBox.style.width = '0px';
-    igBox.style.height = '0px';
-    document.body.appendChild(igBox);
-  }
-
-  function igMouseMove(e) {
-    if (!igBox || igBox.classList.contains('ig-loading')) return;
-    var left = Math.min(igStartX, e.clientX);
-    var top = Math.min(igStartY, e.clientY);
-    igBox.style.left = left + 'px';
-    igBox.style.top = top + 'px';
-    igBox.style.width = Math.abs(e.clientX - igStartX) + 'px';
-    igBox.style.height = Math.abs(e.clientY - igStartY) + 'px';
-  }
-
-  function nearestAspectRatio(w, h) {
-    var ratio = w / h;
-    var candidates = [
-      {label: '1:1', value: 1},
-      {label: '4:3', value: 4 / 3},
-      {label: '3:4', value: 3 / 4},
-      {label: '16:9', value: 16 / 9},
-      {label: '9:16', value: 9 / 16},
-    ];
-    var best = candidates[0], bestDiff = Infinity;
-    candidates.forEach(function (c) {
-      var diff = Math.abs(Math.log(ratio / c.value));
-      if (diff < bestDiff) { bestDiff = diff; best = c; }
-    });
-    return best.label;
-  }
-
-  function igMouseUp(e) {
-    if (!igBox) return;
-    var rect = igBox.getBoundingClientRect();
-    if (rect.width < 20 || rect.height < 20) { removeImageGenBox(); return; }
-    var box = refBox(document.body);
-    igRegion = {
-      left: ((rect.left - box.left) / box.width) * 100,
-      top: ((rect.top - box.top) / box.height) * 100,
-      width: (rect.width / box.width) * 100,
-      height: (rect.height / box.height) * 100,
-      aspectRatio: nearestAspectRatio(rect.width, rect.height),
-    };
-    showImageGenPrompt(rect);
-  }
-
-  function showImageGenPrompt(rect) {
-    removeToolbar();
-    removeColorPopup();
-    removeMorePopup();
-    toolbar = document.createElement('div');
-    var myToolbar = toolbar;
-    toolbar.id = '__wysiwyg_toolbar';
-    toolbar.setAttribute('data-wysiwyg-overlay', '');
-    toolbar.innerHTML =
-      '<input type="text" placeholder="생성할 이미지 설명 입력 후 Enter">' +
-      '<button data-act="ig-submit">생성</button>' +
-      '<button data-act="ig-cancel">✕</button>';
-    document.body.appendChild(toolbar);
-    clampBoxPosition(toolbar, rect.left, rect.bottom + 8);
-    var input = toolbar.querySelector('input');
-    input.focus();
-    var submitting = false;
-    function cancel() {
-      if (toolbar === myToolbar) toolbar.remove();
-      removeImageGenBox();
-      igRegion = null;
-    }
-    function submit() {
-      if (submitting) return;
-      var prompt = input.value.trim();
-      if (!prompt) return;
-      submitting = true;
-      toolbar.remove();
-      igBox.classList.add('ig-loading');
-      igBox.innerHTML = '<span class="ig-status">이미지 생성중...</span>';
-      window.parent.__wysiwygRequestImageGen(prompt, igRegion.aspectRatio);
-    }
-    toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
-    toolbar.addEventListener('click', function (e) {
-      e.stopPropagation();
-      if (submitting) return;
-      var act = e.target.getAttribute('data-act');
-      if (act === 'ig-submit') submit();
-      else if (act === 'ig-cancel') cancel();
-    });
-    toolbar.addEventListener('keydown', function (e) {
-      e.stopPropagation();
-      if (e.key === 'Enter') submit();
-      else if (e.key === 'Escape') cancel();
-    });
-  }
-
-  // Called from the parent frame once the generated image is saved as an
-  // asset — assetUrl is already the rewritten "/api/projects/.../assets/..."
-  // form the live preview uses (syncBack() reverses it back to the stored
-  // "assets/..." form same as every other image the WYSIWYG tools insert).
-  window.__wysiwygInsertGeneratedImage = function (assetUrl) {
-    if (!igRegion) return;
+  // Called from the parent frame once a region-generated image is saved as
+  // an asset. The drag-to-select-region interaction lives entirely in the
+  // outer page now (the iframe gets pointer-events:none while it's active,
+  // so nothing in here ever sees those clicks — see toggleImageGenMode() in
+  // project.html) — this overlay's only job is placing the result.
+  // assetUrl is already the rewritten "/api/projects/.../assets/..." form
+  // the live preview uses (syncBack() reverses it back to the stored
+  // "assets/..." form, same as every other image the WYSIWYG tools insert).
+  window.__wysiwygInsertGeneratedImage = function (assetUrl, leftPct, topPct, widthPct, heightPct) {
     var img = document.createElement('img');
     img.src = assetUrl;
     img.alt = '';
     img.style.position = 'absolute';
-    img.style.left = igRegion.left.toFixed(3) + '%';
-    img.style.top = igRegion.top.toFixed(3) + '%';
-    img.style.width = igRegion.width.toFixed(3) + '%';
-    img.style.height = igRegion.height.toFixed(3) + '%';
+    img.style.left = leftPct.toFixed(3) + '%';
+    img.style.top = topPct.toFixed(3) + '%';
+    img.style.width = widthPct.toFixed(3) + '%';
+    img.style.height = heightPct.toFixed(3) + '%';
     document.body.appendChild(img);
-    removeImageGenBox();
-    igRegion = null;
     syncBack();
-  };
-
-  window.__wysiwygImageGenFailed = function () {
-    removeImageGenBox();
-    igRegion = null;
   };
 
   // Called from the parent frame while any AI-edit request (bar or popup)
@@ -1945,23 +1839,128 @@ window.__wysiwygAiEdit = function(targetOuterHtml, instruction) {
   runAiEdit(instruction, targetOuterHtml);
 };
 
+// Drag-to-select-region for image generation lives entirely on the outer
+// page — while active, the preview iframe gets pointer-events:none (see
+// .imagegen-mode CSS), so the drag never touches anything inside the slide
+// (no hover outlines, no accidental select-and-open-toolbar on a stray
+// click) the way the reference gallery's own region tool works.
+let igDragging = false, igStartX = 0, igStartY = 0;
+let igPendingRegion = null; // {left,top,width,height} in % of the iframe, plus aspectRatio
+
 function toggleImageGenMode() {
   if (!imageGenModeOn && blockIfAiEditBusy()) return;
   imageGenModeOn = !imageGenModeOn;
   document.getElementById('imageGenBtn').classList.toggle('active', imageGenModeOn);
-  const frame = document.getElementById('previewFrame');
-  const win = frame && frame.contentWindow;
-  if (win && win.__wysiwygSetImageGenMode) win.__wysiwygSetImageGenMode(imageGenModeOn);
+  document.getElementById('previewContainer').classList.toggle('imagegen-mode', imageGenModeOn);
+  if (!imageGenModeOn) removeImageGenRubber();
   if (imageGenModeOn) showToast('슬라이드 위에서 드래그해 이미지를 넣을 영역을 선택하세요.');
 }
 
-// Called by the WYSIWYG overlay once the user drags a region on the slide
-// and submits a description for it — scoped to whatever slide is open
-// right now, same as AI edit.
-window.__wysiwygRequestImageGen = async function (prompt, aspectRatio) {
-  if (!currentSlide || aiEditInProgress) return;
+function removeImageGenRubber() {
+  const box = document.getElementById('imageGenRubber');
+  if (box) box.remove();
+}
+
+function nearestAspectRatio(w, h) {
+  const ratio = w / h;
+  const candidates = [
+    {label: '1:1', value: 1},
+    {label: '4:3', value: 4 / 3},
+    {label: '3:4', value: 3 / 4},
+    {label: '16:9', value: 16 / 9},
+    {label: '9:16', value: 9 / 16},
+  ];
+  let best = candidates[0], bestDiff = Infinity;
+  candidates.forEach((c) => {
+    const diff = Math.abs(Math.log(ratio / c.value));
+    if (diff < bestDiff) { bestDiff = diff; best = c; }
+  });
+  return best.label;
+}
+
+// Clamped to the iframe's own rect (not the container's) — the container
+// centers the iframe and can letterbox it, so an unclamped drag near the
+// edge of the window could produce a region outside the actual slide.
+function clampToFrame(x, y) {
+  const r = document.getElementById('previewFrame').getBoundingClientRect();
+  return {x: Math.max(r.left, Math.min(x, r.right)), y: Math.max(r.top, Math.min(y, r.bottom))};
+}
+
+document.getElementById('previewContainer').addEventListener('mousedown', (e) => {
+  if (!imageGenModeOn) return;
+  e.preventDefault();
+  removeImageGenRubber();
+  igDragging = true;
+  const start = clampToFrame(e.clientX, e.clientY);
+  igStartX = start.x;
+  igStartY = start.y;
+  const containerRect = document.getElementById('previewContainer').getBoundingClientRect();
+  const box = document.createElement('div');
+  box.id = 'imageGenRubber';
+  box.className = 'imagegen-rubber';
+  box.style.left = (igStartX - containerRect.left) + 'px';
+  box.style.top = (igStartY - containerRect.top) + 'px';
+  document.getElementById('previewContainer').appendChild(box);
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!igDragging) return;
+  const box = document.getElementById('imageGenRubber');
+  if (!box) return;
+  const containerRect = document.getElementById('previewContainer').getBoundingClientRect();
+  const cur = clampToFrame(e.clientX, e.clientY);
+  const left = Math.min(igStartX, cur.x) - containerRect.left;
+  const top = Math.min(igStartY, cur.y) - containerRect.top;
+  box.style.left = left + 'px';
+  box.style.top = top + 'px';
+  box.style.width = Math.abs(cur.x - igStartX) + 'px';
+  box.style.height = Math.abs(cur.y - igStartY) + 'px';
+});
+
+window.addEventListener('mouseup', () => {
+  if (!igDragging) return;
+  igDragging = false;
+  const box = document.getElementById('imageGenRubber');
+  if (!box) return;
+  const boxRect = box.getBoundingClientRect();
+  if (boxRect.width < 20 || boxRect.height < 20) { removeImageGenRubber(); return; }
+  const frameRect = document.getElementById('previewFrame').getBoundingClientRect();
+  igPendingRegion = {
+    left: ((boxRect.left - frameRect.left) / frameRect.width) * 100,
+    top: ((boxRect.top - frameRect.top) / frameRect.height) * 100,
+    width: (boxRect.width / frameRect.width) * 100,
+    height: (boxRect.height / frameRect.height) * 100,
+    aspectRatio: nearestAspectRatio(boxRect.width, boxRect.height),
+  };
+  openImageGenModal();
+});
+
+function openImageGenModal() {
+  document.getElementById('imageGenPromptInput').value = '';
+  document.getElementById('imageGenModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('imageGenPromptInput').focus(), 50);
+}
+
+function closeImageGenModal() {
+  document.getElementById('imageGenModal').style.display = 'none';
+  removeImageGenRubber();
+  igPendingRegion = null;
+  toggleImageGenMode();
+}
+
+document.getElementById('imageGenPromptInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitImageGen(); }
+});
+
+async function submitImageGen() {
+  const prompt = document.getElementById('imageGenPromptInput').value.trim();
+  if (!prompt || !igPendingRegion || !currentSlide || aiEditInProgress) return;
+  const region = igPendingRegion;
   const targetSlide = currentSlide;
-  const frame = document.getElementById('previewFrame');
+  document.getElementById('imageGenModal').style.display = 'none';
+  const box = document.getElementById('imageGenRubber');
+  if (box) { box.classList.add('loading'); box.innerHTML = '<span>이미지 생성중...</span>'; }
+
   aiEditInProgress = true;
   setNavigationLocked(true);
   document.querySelector('.ai-processing-text').textContent = '이미지 생성중';
@@ -1969,30 +1968,31 @@ window.__wysiwygRequestImageGen = async function (prompt, aspectRatio) {
     const res = await fetch('/api/projects/' + projectName + '/generate-image', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({prompt, aspect_ratio: aspectRatio}),
+      body: JSON.stringify({prompt, aspect_ratio: region.aspectRatio}),
     });
     const data = await res.json();
     if (res.ok && currentSlide === targetSlide) {
       const assetUrl = '/api/projects/' + projectName + '/assets/' + data.filename;
-      frame.contentWindow.__wysiwygInsertGeneratedImage(assetUrl);
+      const frame = document.getElementById('previewFrame');
+      frame.contentWindow.__wysiwygInsertGeneratedImage(assetUrl, region.left, region.top, region.width, region.height);
       showToast('이미지를 생성해 삽입했습니다. 확인 후 저장하세요.');
     } else if (!res.ok) {
       showToast('이미지 생성 실패: ' + (data.detail || ''), true);
-      if (frame.contentWindow.__wysiwygImageGenFailed) frame.contentWindow.__wysiwygImageGenFailed();
     } else {
       showToast('이미지가 생성됐지만 화면이 전환되어 반영하지 않았습니다.', true);
     }
   } catch (e) {
     showToast('이미지 생성 오류: ' + e.message, true);
-    if (frame.contentWindow.__wysiwygImageGenFailed) frame.contentWindow.__wysiwygImageGenFailed();
   }
   aiEditInProgress = false;
   setNavigationLocked(false);
   document.querySelector('.ai-processing-text').textContent = 'AI 반영중';
+  igPendingRegion = null;
+  removeImageGenRubber();
   imageGenModeOn = false;
   document.getElementById('imageGenBtn').classList.remove('active');
-  if (frame.contentWindow.__wysiwygSetImageGenMode) frame.contentWindow.__wysiwygSetImageGenMode(false);
-};
+  document.getElementById('previewContainer').classList.remove('imagegen-mode');
+}
 
 // On success renderPreview() reloads the iframe, which wipes the WYSIWYG
 // popup for free. On failure the iframe is untouched, so its "적용 중..."
