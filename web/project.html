@@ -28,12 +28,21 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .slide-sidebar { height: 100%; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
 .slide-sidebar.nav-locked { opacity: .55; pointer-events: none; }
 .slide-list-item {
-  display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 16px; cursor: pointer;
   color: var(--text-muted); font-size: 13px; transition: background 0.15s;
   border-left: 3px solid transparent;
 }
 .slide-list-item:hover { background: var(--surface-card); }
 .slide-list-item.active { background: var(--rh-red-tint); border-left-color: var(--rh-red); color: var(--text); }
+.slide-thumb {
+  width: 100%; aspect-ratio: 16 / 9; background: #fff; border: 1px solid var(--border);
+  border-radius: 3px; overflow: hidden; position: relative; pointer-events: none;
+}
+.slide-thumb iframe {
+  width: 960px; height: 540px; border: none; position: absolute; top: 0; left: 0;
+  transform-origin: top left;
+}
+.slide-row { display: flex; align-items: center; gap: 10px; width: 100%; }
 .slide-num { font-weight: 700; color: var(--rh-red); min-width: 24px; text-align: center; font-size: 12px; }
 .slide-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .slide-actions { display: flex; gap: 2px; flex-shrink: 0; opacity: 0; transition: opacity .15s; }
@@ -90,30 +99,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
   position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 5001;
   color: #fff; font-size: 13px; background: rgba(255,255,255,.12); padding: 4px 12px; border-radius: 12px;
 }
-
-.comment-panel {
-  position: fixed; bottom: 20px; right: 20px; z-index: 3000; width: 280px; max-height: 400px;
-  background: var(--surface-card); border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.2); display: flex; flex-direction: column;
-}
-.comment-panel-header {
-  flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600;
-}
-.comment-panel-header button { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 14px; }
-.comment-panel-body { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-.comment-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
-.comment-row .cr-num {
-  flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--rh-red); color: #fff;
-  font-size: 10px; display: flex; align-items: center; justify-content: center; margin-top: 1px;
-}
-.comment-row .cr-note { flex: 1; word-break: break-word; color: var(--text); }
-.comment-row button {
-  flex-shrink: 0; border: none; background: var(--surface); color: var(--text-muted); cursor: pointer;
-  border-radius: 3px; padding: 2px 6px; font-size: 10px;
-}
-.comment-row button:hover { background: var(--rh-red-tint); color: var(--rh-red); }
-#commentModeBtn.btn-active { background: var(--rh-red); color: #fff; border-color: var(--rh-red); }
 
 .modal-overlay {
   position: fixed; inset: 0; z-index: 4000; background: rgba(0,0,0,.5);
@@ -298,9 +283,8 @@ main.content { flex: 1; min-height: 0; display: flex; }
       </div>
       <div id="slideList"></div>
       <div class="sidebar-add-slide">
-        <button class="btn btn-sm" onclick="addBlankSlide()">
+        <button class="btn btn-sm" onclick="addBlankSlide()" title="새 슬라이드">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-          새 슬라이드
         </button>
       </div>
     </div>
@@ -329,10 +313,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
         <button class="btn" id="presentBtn" onclick="enterPresentMode()" disabled title="프레젠테이션 모드 (F)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           프레젠테이션
-        </button>
-        <button class="btn" id="commentModeBtn" onclick="toggleCommentMode()" disabled title="코멘트 모드 — 슬라이드 요소를 클릭해 코멘트 추가">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-          코멘트
         </button>
         <button class="btn btn-danger" onclick="deleteProject()">삭제</button>
       </div>
@@ -413,14 +393,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
   <div class="present-counter" id="presentCounter"></div>
 </div>
 
-<div class="comment-panel" id="commentPanel" style="display:none">
-  <div class="comment-panel-header">
-    <span>코멘트</span>
-    <button onclick="toggleCommentMode()" title="코멘트 모드 끄기">✕</button>
-  </div>
-  <div class="comment-panel-body" id="commentPanelBody"></div>
-</div>
-
 <div class="modal-overlay" id="assetsModal" style="display:none">
   <div class="modal-box assets-modal">
     <div class="modal-header">
@@ -492,11 +464,6 @@ let originalHtml = '';
 let htmlDirty = false;
 let liveUpdateTimer = null;
 let aiEditInProgress = false;
-let commentMode = false;
-
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
 
 const htmlCM = CodeMirror.fromTextArea(document.getElementById('htmlEditor'), {
   mode: 'htmlmixed',
@@ -560,7 +527,6 @@ async function loadProject(autoSelect = true) {
   document.getElementById('exportHtmlBtn').disabled = !hasSlides;
   document.getElementById('exportPdfBtn').disabled = !hasSlides;
   document.getElementById('presentBtn').disabled = !hasSlides;
-  document.getElementById('commentModeBtn').disabled = !hasSlides;
 
   const warningEl = document.getElementById('buildWarning');
   const warningText = project.build_warning || project.generation_warning;
@@ -579,15 +545,20 @@ async function loadProject(autoSelect = true) {
     list.appendChild(createInsertZone(i));
     const item = document.createElement('div');
     item.className = 'slide-list-item' + (currentSlide === s ? ' active' : '');
+    item.dataset.filename = s;
     item.innerHTML =
-      '<span class="slide-num">' + (i+1) + '</span>' +
-      '<span class="slide-name">' + s.replace('.html','') + '</span>' +
-      '<span class="slide-actions">' +
-        '<button class="slide-action-btn" title="위로"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
-        '<button class="slide-action-btn" title="아래로"' + (i === slides.length - 1 ? ' disabled' : '') + '>↓</button>' +
-        '<button class="slide-action-btn slide-action-danger" title="삭제">×</button>' +
-      '</span>';
+      '<div class="slide-thumb"><iframe scrolling="no"></iframe></div>' +
+      '<div class="slide-row">' +
+        '<span class="slide-num">' + (i+1) + '</span>' +
+        '<span class="slide-name">' + s.replace('.html','') + '</span>' +
+        '<span class="slide-actions">' +
+          '<button class="slide-action-btn" title="위로"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+          '<button class="slide-action-btn" title="아래로"' + (i === slides.length - 1 ? ' disabled' : '') + '>↓</button>' +
+          '<button class="slide-action-btn slide-action-danger" title="삭제">×</button>' +
+        '</span>' +
+      '</div>';
     item.onclick = () => selectSlide(s);
+    renderSlideThumb(item.querySelector('.slide-thumb'), s);
     const [upBtn, downBtn, delBtn] = item.querySelectorAll('.slide-action-btn');
     upBtn.onclick = (e) => moveSlide(i, -1, e);
     downBtn.onclick = (e) => moveSlide(i, 1, e);
@@ -711,12 +682,6 @@ function buildWysiwygOverlayScript(colors) {
   }
   [data-wysiwyg-new] { outline: 2px dashed #ee0000 !important; outline-offset: 1px; }
   #__wysiwyg_lock_scrim { position: fixed; inset: 0; z-index: 999997; cursor: not-allowed; }
-  .__wysiwyg_comment_pin {
-    position: fixed; z-index: 999996; width: 20px; height: 20px; border-radius: 50%;
-    background: #ee0000; color: #fff; font-size: 10px; font-weight: 700; display: flex;
-    align-items: center; justify-content: center; transform: translate(-50%, -50%);
-    box-shadow: 0 2px 6px rgba(0,0,0,.35); font-family: -apple-system, "Segoe UI", sans-serif;
-  }
   .wt-resize-handle {
     position: fixed; z-index: 999999; width: 9px; height: 9px; background: #fff;
     border: 2px solid #ee0000; border-radius: 2px; transform: translate(-50%, -50%);
@@ -750,7 +715,6 @@ function buildWysiwygOverlayScript(colors) {
   var toolbar = null;
   var suppressNextClick = false; // set right after creating a new text box, so the click that follows mouseup doesn't immediately clearSelection() it away
   var pendingNewEl = null; // a just-created, not-yet-submitted text box — discarded if the user abandons it instead of typing something
-  var commentMode = false; // mutually exclusive with normal selection/editing, same as the reference gallery's Comment Mode
 
   // Any element is selectable now — shapes, cards, decorative boxes, not
   // just text/images — except the document root and the overlay's own
@@ -815,6 +779,20 @@ function buildWysiwygOverlayScript(colors) {
     window.parent.__wysiwygSync('<' + '!DOCTYPE html>\\n' + clone.outerHTML);
   }
 
+  // Clamps a floating box (toolbar/popup) so it never overflows the edge of
+  // the preview frame — previously only the top/left edges were guarded,
+  // so a selection near the right or bottom edge of the slide got its menu
+  // cut off by the iframe boundary instead of shifting to stay visible.
+  function clampBoxPosition(box, left, top) {
+    box.style.left = left + 'px';
+    box.style.top = top + 'px';
+    var rect = box.getBoundingClientRect();
+    var maxLeft = Math.max(4, window.innerWidth - rect.width - 4);
+    var maxTop = Math.max(4, window.innerHeight - rect.height - 4);
+    box.style.left = Math.max(4, Math.min(left, maxLeft)) + 'px';
+    box.style.top = Math.max(4, Math.min(top, maxTop)) + 'px';
+  }
+
   function showToolbar(el) {
     // Switching a not-yet-submitted new box into the normal font/color
     // toolbar (e.g. the user clicked its placeholder text instead of typing
@@ -830,8 +808,6 @@ function buildWysiwygOverlayScript(colors) {
     toolbar = document.createElement('div');
     toolbar.id = '__wysiwyg_toolbar';
     toolbar.setAttribute('data-wysiwyg-overlay', '');
-    toolbar.style.left = Math.max(4, rect.left) + 'px';
-    toolbar.style.top = Math.max(4, rect.top - 36) + 'px';
     if (el.tagName === 'IMG') {
       toolbar.innerHTML = warnLabel + '<span class="wt-label">드래그로 이동</span><button data-act="more" title="배경·모서리·순서·숨김">⋯</button><button data-act="ai">AI 수정</button><button data-act="delete" title="삭제">삭제</button>';
     } else if (isTextLeaf(el)) {
@@ -858,6 +834,7 @@ function buildWysiwygOverlayScript(colors) {
         '<button data-act="delete" title="삭제">삭제</button>';
     }
     document.body.appendChild(toolbar);
+    clampBoxPosition(toolbar, rect.left, rect.top - 36);
     var rt = resizableTarget(el);
     if (rt) showResizeHandles(rt); else removeResizeHandles();
     toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
@@ -914,6 +891,7 @@ function buildWysiwygOverlayScript(colors) {
 
   function showColorPopup(el, anchorEl) {
     if (document.getElementById('__wysiwyg_color_popup')) { removeColorPopup(); return; }
+    removeMorePopup(); // the two popups anchor to the same toolbar rect and would otherwise overlap
     var anchorRect = anchorEl.getBoundingClientRect();
     var popup = document.createElement('div');
     popup.id = '__wysiwyg_color_popup';
@@ -927,8 +905,7 @@ function buildWysiwygOverlayScript(colors) {
     // Anchor above the toolbar (not below it) so the popup never covers the
     // very toolbar buttons the user might still want to use.
     var popupRect = popup.getBoundingClientRect();
-    popup.style.left = Math.max(4, anchorRect.left) + 'px';
-    popup.style.top = Math.max(4, anchorRect.top - popupRect.height - 8) + 'px';
+    clampBoxPosition(popup, anchorRect.left, anchorRect.top - popupRect.height - 8);
 
     popup.addEventListener('mousedown', function (e) { e.stopPropagation(); });
     popup.addEventListener('click', function (e) {
@@ -956,6 +933,7 @@ function buildWysiwygOverlayScript(colors) {
   function showMorePopup(el, anchorEl) {
     var existing = document.getElementById('__wysiwyg_more_popup');
     if (existing) { existing.remove(); return; }
+    removeColorPopup(); // the two popups anchor to the same toolbar rect and would otherwise overlap
     var anchorRect = anchorEl.getBoundingClientRect();
     var popup = document.createElement('div');
     popup.id = '__wysiwyg_more_popup';
@@ -974,8 +952,7 @@ function buildWysiwygOverlayScript(colors) {
     document.body.appendChild(popup);
 
     var popupRect = popup.getBoundingClientRect();
-    popup.style.left = Math.max(4, anchorRect.left) + 'px';
-    popup.style.top = Math.max(4, anchorRect.top - popupRect.height - 8) + 'px';
+    clampBoxPosition(popup, anchorRect.left, anchorRect.top - popupRect.height - 8);
 
     var radiusVal = popup.querySelector('#mpRadiusVal');
     var visBtn = popup.querySelector('#mpVisBtn');
@@ -1116,7 +1093,11 @@ function buildWysiwygOverlayScript(colors) {
     s.el.style.width = ((width / s.box.width) * 100).toFixed(3) + '%';
     s.el.style.height = ((height / s.box.height) * 100).toFixed(3) + '%';
     checkOverflow(s.el);
-    showResizeHandles(s.el);
+    // Reposition the existing handles instead of showResizeHandles()'s
+    // remove-and-recreate-all-8 rebuild — same stutter-avoidance as the
+    // drag mousemove handler above.
+    var viewportRect = {left: s.box.left + left, top: s.box.top + top, right: s.box.left + left + width, bottom: s.box.top + top + height};
+    resizeHandleEls.forEach(function (h, i) { positionHandle(h, viewportRect, RESIZE_HANDLE_DIRS[i]); });
   }
   function onResizeEnd() {
     document.removeEventListener('mousemove', onResizeMove);
@@ -1155,13 +1136,12 @@ function buildWysiwygOverlayScript(colors) {
     var myToolbar = toolbar;
     toolbar.id = '__wysiwyg_toolbar';
     toolbar.setAttribute('data-wysiwyg-overlay', '');
-    toolbar.style.left = Math.max(4, rect.left) + 'px';
-    toolbar.style.top = Math.max(4, rect.top - 36) + 'px';
     toolbar.innerHTML =
       '<input type="text" placeholder="' + (isNew ? '넣을 내용을 입력하세요 (예: 배지에 NEW 표시)' : '수정 요청 입력 후 Enter') + '">' +
       '<button data-act="ai-submit">적용</button>' +
       '<button data-act="ai-cancel">✕</button>';
     document.body.appendChild(toolbar);
+    clampBoxPosition(toolbar, rect.left, rect.top - 36);
     var input = toolbar.querySelector('input');
     var submitBtn = toolbar.querySelector('[data-act="ai-submit"]');
     var cancelBtn = toolbar.querySelector('[data-act="ai-cancel"]');
@@ -1225,11 +1205,6 @@ function buildWysiwygOverlayScript(colors) {
 
   document.addEventListener('click', function (e) {
     if (suppressNextClick) { suppressNextClick = false; return; }
-    if (commentMode) {
-      var target = closestEditable(e.target);
-      if (target) { e.preventDefault(); startCommentInput(target); }
-      return;
-    }
     var el = closestEditable(e.target);
     if (!el) { clearSelection(); return; }
     if (pendingNewEl && !pendingNewEl.contains(el)) discardPendingNew();
@@ -1319,11 +1294,12 @@ function buildWysiwygOverlayScript(colors) {
 
   var DRAG_THRESHOLD = 4;
   var dragEl = null, dragBox = null, dragStartX = 0, dragStartY = 0, dragOffX = 0, dragOffY = 0, dragMoved = false;
+  var dragChromeStart = null; // toolbar/handle starting positions, snapshotted once per drag — see mousemove below
   document.addEventListener('mousedown', function (e) {
     // Any non-text element is drag-to-reposition-able now (images, shapes,
     // cards) — text leaves stay click-only (select for font editing), and
     // clicking body itself falls through to the add-content gesture below.
-    if (commentMode || e.target === document.body || isTextLeaf(e.target)) return;
+    if (e.target === document.body || isTextLeaf(e.target)) return;
     if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
     discardPendingNew();
     dragEl = e.target;
@@ -1344,17 +1320,45 @@ function buildWysiwygOverlayScript(colors) {
       var r = dragEl.getBoundingClientRect();
       dragOffX = dragStartX - r.left;
       dragOffY = dragStartY - r.top;
+      // Snapshot the toolbar/handles' starting position once, so each move
+      // tick below can just translate them instead of doing a full
+      // showToolbar() rebuild — recreating the toolbar and all 8 resize
+      // handles on every single mousemove event was expensive enough to
+      // make dragging visibly stutter instead of tracking the cursor.
+      dragChromeStart = null;
+      if (toolbar && selected === dragEl) {
+        dragChromeStart = {
+          toolbarLeft: parseFloat(toolbar.style.left) || 0,
+          toolbarTop: parseFloat(toolbar.style.top) || 0,
+          handles: resizeHandleEls.map(function (h) { return {el: h, left: parseFloat(h.style.left) || 0, top: parseFloat(h.style.top) || 0}; }),
+        };
+      }
     }
     var left = e.clientX - dragOffX - dragBox.left;
     var top = e.clientY - dragOffY - dragBox.top;
     dragEl.style.left = ((left / dragBox.width) * 100).toFixed(3) + '%';
     dragEl.style.top = ((top / dragBox.height) * 100).toFixed(3) + '%';
-    if (toolbar && selected === dragEl) showToolbar(dragEl);
+    if (dragChromeStart) {
+      var dx = e.clientX - dragStartX, dy = e.clientY - dragStartY;
+      toolbar.style.left = (dragChromeStart.toolbarLeft + dx) + 'px';
+      toolbar.style.top = (dragChromeStart.toolbarTop + dy) + 'px';
+      dragChromeStart.handles.forEach(function (h) {
+        h.el.style.left = (h.left + dx) + 'px';
+        h.el.style.top = (h.top + dy) + 'px';
+      });
+    }
   });
   document.addEventListener('mouseup', function () {
-    if (dragEl && dragMoved) syncBack();
+    if (dragEl && dragMoved) {
+      syncBack();
+      // One full rebuild now that dragging is done — re-clamps the toolbar
+      // to the viewport, refreshes the overflow warning, and re-derives
+      // exact handle positions instead of the cheap translation used above.
+      if (selected === dragEl) showToolbar(dragEl);
+    }
     dragEl = null;
     dragMoved = false;
+    dragChromeStart = null;
   });
 
   // Click (or drag a rectangle) on truly empty slide space — now that every
@@ -1384,7 +1388,7 @@ function buildWysiwygOverlayScript(colors) {
   }
 
   document.addEventListener('mousedown', function (e) {
-    if (e.button !== 0 || commentMode) return;
+    if (e.button !== 0) return;
     if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
     if (e.target.tagName === 'IMG') return;
     if (closestEditable(e.target)) return;
@@ -1452,105 +1456,6 @@ function buildWysiwygOverlayScript(colors) {
       scrim.remove();
     }
   };
-
-  // ── Comments ──
-  // Anchored by a structural path (tag + index-among-same-tag-siblings from
-  // body down), not an id/class — most AI-authored slides have neither.
-  // Re-resolved fresh every render; if the slide's structure changed enough
-  // that the path no longer matches, the pin for that comment just doesn't
-  // render (the comment itself is never lost — it's still listed and
-  // deletable in the parent panel).
-  function getElementPath(el) {
-    var path = [];
-    var cur = el;
-    while (cur && cur !== document.body) {
-      var parent = cur.parentElement;
-      if (!parent) break;
-      var siblings = Array.prototype.filter.call(parent.children, function (c) { return c.tagName === cur.tagName; });
-      path.unshift(cur.tagName + ':' + siblings.indexOf(cur));
-      cur = parent;
-    }
-    return path;
-  }
-  function resolveElementPath(path) {
-    var cur = document.body;
-    for (var i = 0; i < path.length; i++) {
-      var parts = path[i].split(':');
-      var tag = parts[0], idx = parseInt(parts[1], 10);
-      var children = Array.prototype.filter.call(cur.children, function (c) { return c.tagName === tag; });
-      if (idx < 0 || idx >= children.length) return null;
-      cur = children[idx];
-    }
-    return cur;
-  }
-
-  function startCommentInput(target) {
-    removeToolbar();
-    removeColorPopup();
-    removeMorePopup();
-    var rect = target.getBoundingClientRect();
-    var box = document.createElement('div');
-    box.id = '__wysiwyg_toolbar'; // reuses the toolbar's existing styling and cleanup lifecycle
-    box.setAttribute('data-wysiwyg-overlay', '');
-    box.style.left = Math.max(4, rect.left) + 'px';
-    box.style.top = Math.max(4, rect.top - 36) + 'px';
-    box.innerHTML =
-      '<input type="text" placeholder="코멘트 입력 후 Enter">' +
-      '<button data-act="c-submit">추가</button>' +
-      '<button data-act="c-cancel">✕</button>';
-    document.body.appendChild(box);
-    toolbar = box;
-    var input = box.querySelector('input');
-    input.focus();
-    box.addEventListener('mousedown', function (e) { e.stopPropagation(); });
-    box.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var act = e.target.getAttribute('data-act');
-      if (act === 'c-submit') {
-        var note = input.value.trim();
-        if (!note) return;
-        window.parent.__wysiwygAddComment(getElementPath(target), note);
-        removeToolbar();
-      } else if (act === 'c-cancel') {
-        removeToolbar();
-      }
-    });
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); box.querySelector('[data-act="c-submit"]').click(); }
-      else if (e.key === 'Escape') { e.preventDefault(); box.querySelector('[data-act="c-cancel"]').click(); }
-    });
-  }
-
-  function removeCommentPins() {
-    document.querySelectorAll('.__wysiwyg_comment_pin').forEach(function (p) { p.remove(); });
-  }
-
-  // Called from the parent frame to toggle Comment Mode — mutually
-  // exclusive with normal selection/dragging/add-content (guarded via the
-  // commentMode checks in those handlers above).
-  window.__wysiwygSetCommentMode = function (on) {
-    commentMode = on;
-    if (!on) { removeToolbar(); removeCommentPins(); clearSelection(); }
-  };
-
-  // Called from the parent frame with the current slide's comment list
-  // whenever it changes, to (re)draw pins at each comment's resolved position.
-  window.__wysiwygShowCommentPins = function (comments) {
-    removeCommentPins();
-    comments.forEach(function (c, i) {
-      var el = resolveElementPath(c.path);
-      if (!el) return;
-      var rect = el.getBoundingClientRect();
-      var pin = document.createElement('div');
-      pin.className = '__wysiwyg_comment_pin';
-      pin.setAttribute('data-wysiwyg-overlay', '');
-      pin.textContent = String(i + 1);
-      pin.title = c.note;
-      pin.style.left = rect.left + 'px';
-      pin.style.top = rect.top + 'px';
-      document.body.appendChild(pin);
-    });
-  };
 })();
 <\/script>
 `;
@@ -1560,6 +1465,35 @@ function rewriteSlidePaths(rawHtml) {
   return rawHtml
     .replaceAll('../../../../redhat/', '/engine/redhat/')
     .replaceAll('src="assets/', 'src="/api/projects/' + projectName + '/assets/');
+}
+
+// Sidebar thumbnails — reflects the saved file, not live unsaved WYSIWYG
+// edits (same contract as the reference gallery's own thumbnails). Cached
+// per filename so reordering/inserting slides (which re-renders the whole
+// list) doesn't re-fetch HTML for slides that haven't actually changed;
+// invalidateThumb() is called wherever a slide is actually saved.
+const thumbHtmlCache = {};
+
+async function renderSlideThumb(thumbEl, filename) {
+  let html = thumbHtmlCache[filename];
+  if (html === undefined) {
+    try {
+      const res = await fetch('/api/projects/' + projectName + '/slides/' + filename + '/preview');
+      html = res.ok ? await res.text() : '';
+    } catch (e) { html = ''; }
+    thumbHtmlCache[filename] = html;
+  }
+  const iframe = thumbEl.querySelector('iframe');
+  if (!iframe) return; // the row may have been re-rendered away while this fetch was in flight
+  iframe.srcdoc = html ? rewriteSlidePaths(html) : '';
+  iframe.style.transform = 'scale(' + (thumbEl.clientWidth / 960) + ')';
+}
+
+function invalidateThumb(filename) {
+  delete thumbHtmlCache[filename];
+  document.querySelectorAll('.slide-list-item').forEach((item) => {
+    if (item.dataset.filename === filename) renderSlideThumb(item.querySelector('.slide-thumb'), filename);
+  });
 }
 
 function buildPreviewHtml(rawHtml) {
@@ -1576,70 +1510,7 @@ function renderPreview(rawHtml) {
   frame.setAttribute('scrolling', 'no');
   frame.srcdoc = buildPreviewHtml(rawHtml);
   requestAnimationFrame(fitPreviewFrame);
-  // A full srcdoc reload gives the overlay a fresh script instance —
-  // comment mode (and any pins) would silently reset to off/empty unless
-  // re-applied once the new document has actually loaded.
-  frame.onload = () => { if (commentMode) applyCommentModeToFrame(); };
 }
-
-function toggleCommentMode() {
-  if (blockIfAiEditBusy()) return;
-  commentMode = !commentMode;
-  document.getElementById('commentModeBtn').classList.toggle('btn-active', commentMode);
-  document.getElementById('commentPanel').style.display = commentMode ? 'flex' : 'none';
-  const frame = document.getElementById('previewFrame');
-  if (frame.contentWindow && frame.contentWindow.__wysiwygSetCommentMode) {
-    frame.contentWindow.__wysiwygSetCommentMode(commentMode);
-  }
-  if (commentMode) loadCommentsPanel();
-}
-
-function applyCommentModeToFrame() {
-  const frame = document.getElementById('previewFrame');
-  if (!commentMode || !frame.contentWindow || !frame.contentWindow.__wysiwygSetCommentMode) return;
-  frame.contentWindow.__wysiwygSetCommentMode(true);
-  loadCommentsPanel();
-}
-
-async function loadCommentsPanel() {
-  if (!currentSlide) return;
-  const res = await fetch('/api/projects/' + projectName + '/slides/' + currentSlide + '/comments');
-  const comments = res.ok ? await res.json() : [];
-  const body = document.getElementById('commentPanelBody');
-  if (!comments.length) {
-    body.innerHTML = '<div class="assets-empty">코멘트가 없습니다.<br>슬라이드의 요소를 클릭해 추가하세요.</div>';
-  } else {
-    body.innerHTML = '';
-    comments.forEach((c, i) => {
-      const row = document.createElement('div');
-      row.className = 'comment-row';
-      row.innerHTML = '<span class="cr-num">' + (i + 1) + '</span><span class="cr-note">' + escapeHtml(c.note) + '</span><button>삭제</button>';
-      row.querySelector('button').onclick = () => deleteComment(c.id);
-      body.appendChild(row);
-    });
-  }
-  const frame = document.getElementById('previewFrame');
-  if (frame.contentWindow && frame.contentWindow.__wysiwygShowCommentPins) {
-    frame.contentWindow.__wysiwygShowCommentPins(comments);
-  }
-}
-
-async function deleteComment(id) {
-  if (!currentSlide) return;
-  await fetch('/api/projects/' + projectName + '/slides/' + currentSlide + '/comments/' + id, {method: 'DELETE'});
-  loadCommentsPanel();
-}
-
-// Called by the overlay when the user clicks an element while comment mode is on.
-window.__wysiwygAddComment = async function (path, note) {
-  if (!currentSlide) return;
-  const res = await fetch('/api/projects/' + projectName + '/slides/' + currentSlide + '/comments', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path, note}),
-  });
-  if (res.ok) loadCommentsPanel();
-  else showToast('코멘트 저장 실패', true);
-};
 
 // Called by the overlay after any font-size/color/drag change. Reverses the
 // two path rewrites buildPreviewHtml() applied so what lands back in
@@ -1723,6 +1594,7 @@ async function restoreSlideBackup() {
     htmlCM.setValue(data.html);
     setDirty(false);
     renderPreview(data.html);
+    invalidateThumb(currentSlide);
     showToast('이전 버전으로 되돌렸습니다.');
   } else {
     showToast('되돌리기 실패', true);
@@ -2212,6 +2084,7 @@ async function saveSlideHtml() {
   if (res.ok) {
     originalHtml = html;
     setDirty(false);
+    invalidateThumb(currentSlide);
     showToast('저장 완료');
   } else {
     showToast('저장 실패', true);
