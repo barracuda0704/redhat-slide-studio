@@ -21,12 +21,12 @@
 html, body { height: 100%; }
 body { display: flex; flex-direction: column; overflow: hidden; }
 .masthead { flex-shrink: 0; }
-.masthead.nav-locked { opacity: .55; pointer-events: none; }
+.masthead.nav-locked { opacity: .55; filter: blur(1.5px); pointer-events: none; }
 main.content { flex: 1; min-height: 0; display: flex; }
 
 .project-layout { flex: 1; min-height: 0; width: 100%; display: grid; grid-template-columns: 240px 1fr; gap: 0; background: var(--surface-card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .slide-sidebar { height: 100%; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
-.slide-sidebar.nav-locked { opacity: .55; pointer-events: none; }
+.slide-sidebar.nav-locked { opacity: .55; filter: blur(1.5px); pointer-events: none; }
 .slide-list-item {
   display: flex; flex-direction: column; gap: 6px; padding: 8px 16px; cursor: pointer;
   color: var(--text-muted); font-size: 13px; transition: background 0.15s;
@@ -166,7 +166,26 @@ main.content { flex: 1; min-height: 0; display: flex; }
   display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; flex-wrap: wrap;
 }
-.toolbar.nav-locked, .viewer-toolbar.nav-locked, .ai-edit-bar.nav-locked, .html-accordion.nav-locked { opacity: .55; pointer-events: none; }
+.toolbar.nav-locked, .viewer-toolbar.nav-locked, .ai-edit-bar.nav-locked, .html-accordion.nav-locked {
+  opacity: .55; filter: blur(1.5px); pointer-events: none;
+}
+/* Only the slide content blurs — a filter on .preview-container itself
+   would blur the "AI 반영중" overlay sitting on top of it too. */
+.preview-container.nav-locked #previewFrame, .preview-container.nav-locked #previewEmpty {
+  opacity: .55; filter: blur(1.5px); pointer-events: none;
+}
+.ai-processing-overlay {
+  display: none; position: absolute; inset: 0; z-index: 20;
+  flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+}
+.preview-container.nav-locked .ai-processing-overlay { display: flex; }
+.ai-processing-spinner {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 3px solid var(--rh-red-tint, rgba(238,0,0,.2)); border-top-color: var(--rh-red);
+  animation: ai-processing-spin .8s linear infinite;
+}
+@keyframes ai-processing-spin { to { transform: rotate(360deg); } }
+.ai-processing-text { font-size: 13px; font-weight: 700; color: var(--text); }
 .toolbar .btn { font-size: 13px; padding: 7px 14px; }
 .toolbar .status-badge {
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
@@ -180,7 +199,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .status-failed { background: var(--danger-bg); color: var(--danger); }
 
 .tab-bar { flex-shrink: 0; display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
-.tab-bar.nav-locked { opacity: .55; pointer-events: none; }
+.tab-bar.nav-locked { opacity: .55; filter: blur(1.5px); pointer-events: none; }
 .tab-btn {
   padding: 8px 18px; cursor: pointer; color: var(--text-muted); font-size: 13px;
   border-bottom: 2px solid transparent; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none;
@@ -330,7 +349,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
       <!-- Slide: viewer toolbar + preview + collapsible raw-HTML editor -->
       <div id="slideTab">
         <div class="viewer-toolbar" id="viewerToolbar">
-          <button class="btn" id="undoBtn" onclick="restoreAllSlidesBackup()" disabled title="프로젝트의 모든 슬라이드를 각자의 마지막 저장 이전 버전으로 되돌리기">
+          <button class="btn" id="undoBtn" onclick="revertUnsavedChanges()" disabled title="저장하지 않은 변경사항을 마지막 저장 상태로 되돌리기">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3.5-7.1"/><path d="M3 4v5h5"/></svg>
             전체 되돌리기
           </button>
@@ -343,6 +362,10 @@ main.content { flex: 1; min-height: 0; display: flex; }
         <div class="preview-container" id="previewContainer">
           <div class="preview-empty" id="previewEmpty">슬라이드를 선택하세요.</div>
           <iframe id="previewFrame" style="display:none"></iframe>
+          <div class="ai-processing-overlay" id="aiProcessingOverlay">
+            <div class="ai-processing-spinner"></div>
+            <div class="ai-processing-text">AI 반영중</div>
+          </div>
         </div>
 
         <div class="ai-edit-bar">
@@ -490,6 +513,7 @@ function setDirty(v) {
   htmlDirty = v;
   document.getElementById('htmlDirtyDot').classList.toggle('show', v);
   document.getElementById('saveSlideBtn').disabled = !v;
+  document.getElementById('undoBtn').disabled = !v;
 }
 
 window.addEventListener('beforeunload', (e) => {
@@ -525,7 +549,6 @@ async function loadProject(autoSelect = true) {
   document.getElementById('exportHtmlBtn').disabled = !hasSlides;
   document.getElementById('exportPdfBtn').disabled = !hasSlides;
   document.getElementById('presentBtn').disabled = !hasSlides;
-  document.getElementById('undoBtn').disabled = !hasSlides;
 
   const warningEl = document.getElementById('buildWarning');
   const warningText = project.build_warning || project.generation_warning;
@@ -1506,35 +1529,20 @@ async function selectSlide(filename) {
   }
 }
 
-// Reverts every slide in the project to its own last-saved backup (each
-// slide keeps one backup snapshot, taken the moment it was last saved) —
-// not just whichever slide happens to be open, since this button now lives
-// in the project-wide toolbar rather than inside a per-slide editor.
-async function restoreAllSlidesBackup() {
-  const slides = project && project.slides || [];
-  if (!slides.length) return;
-  if (blockIfAiEditBusy()) return;
-  if (!confirm('프로젝트의 모든 슬라이드를 각각의 마지막 저장 이전 버전으로 되돌립니다. 지금 편집 중인 내용은 사라집니다. 계속하시겠습니까?')) return;
-
-  let restoredCount = 0;
-  for (const filename of slides) {
-    const backupRes = await fetch('/api/projects/' + projectName + '/slides/' + filename + '/backup');
-    const backupData = backupRes.ok ? await backupRes.json() : {has_backup: false};
-    if (!backupData.has_backup) continue;
-
-    const res = await fetch('/api/projects/' + projectName + '/slides/' + filename + '/restore', {method: 'POST'});
-    if (!res.ok) continue;
-    restoredCount++;
-    invalidateThumb(filename);
-    if (filename === currentSlide) {
-      const data = await res.json();
-      originalHtml = data.html;
-      htmlCM.setValue(data.html);
-      setDirty(false);
-      renderPreview(data.html);
-    }
-  }
-  showToast(restoredCount > 0 ? restoredCount + '개 슬라이드를 되돌렸습니다.' : '되돌릴 이전 버전이 없습니다.');
+// "전체 되돌리기": discards every unsaved change on the CURRENTLY OPEN
+// slide, back to its last-saved state (originalHtml). "전체" means "all of
+// the pending edits at once", not "every slide in the project" — only the
+// open slide can ever be dirty in the first place, and once it's saved
+// there's nothing left to revert (setDirty() disables this button the
+// moment htmlDirty goes false). Purely client-side: nothing was persisted
+// yet, so there's no server call needed.
+function revertUnsavedChanges() {
+  if (!currentSlide || !htmlDirty) return;
+  if (!confirm('저장하지 않은 변경사항을 모두 되돌립니다. 계속하시겠습니까?')) return;
+  htmlCM.setValue(originalHtml);
+  setDirty(false);
+  renderPreview(originalHtml);
+  showToast('마지막 저장 상태로 되돌렸습니다.');
 }
 
 async function deleteSlide(filename, event) {
@@ -1788,6 +1796,7 @@ function setNavigationLocked(locked) {
   document.querySelector('.ai-edit-bar').classList.toggle('nav-locked', locked);
   document.querySelector('.viewer-toolbar').classList.toggle('nav-locked', locked);
   document.querySelector('.html-accordion').classList.toggle('nav-locked', locked);
+  document.getElementById('previewContainer').classList.toggle('nav-locked', locked);
   // Also freeze the WYSIWYG overlay inside the preview iframe — otherwise
   // the outer chrome is locked but the user could still select/drag/add
   // elements on the slide itself while a request for it is in flight.
