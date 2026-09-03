@@ -133,6 +133,16 @@ def _build_slide_system(theme_css: str, icon_list: str, theme_guide: str) -> str
    - 잘못된 예: `<h1 style="border-bottom:2pt solid red;">제목</h1>`, `<h2 class="underline">제목</h2>` (underline 클래스가 border-bottom을 h2에 직접 줌)
    - 올바른 예: `<div style="border-bottom:2pt solid red; padding-bottom:6pt;"><h2>제목</h2></div>`
 3. `<div>`에 `background-image`나 `linear-gradient`/`radial-gradient`를 쓰지 마세요 (단색 `background-color`만 가능). 이미지는 `<img>` 태그로 배치하세요.
+4. **글자·표·라벨을 이미지로 대체하지 마세요.** 단계/기간/절차표, 검정 배경 위 라벨, 강조를 위한
+   붉은 글씨 등 텍스트로 표현 가능한 내용은 예외 없이 실제 `<p>`/`<h1>~<h6>`/`<ul>`/`<li>` +
+   감싸는 `<div>`의 background-color로 구현하세요 (`<img>` 태그로 텍스트 내용을 대신하면 나중에
+   글자를 수정할 방법이 없어집니다 — 사용자가 직접 편집할 수 있어야 하는 모든 콘텐츠는 실제
+   텍스트여야 합니다). `<img>`는 공식 아이콘·사진처럼 정말 텍스트가 아닌 그래픽에만 사용하세요.
+   - 한 줄 안에서 색상/굵기가 섞여야 할 때(예: "일반 검정 글씨 + 강조용 붉은 글씨", "일반 + 굵게")도
+     이미지로 만들지 말고, 같은 `<p>` 안에 여러 개의 `<span>`을 넣어 각각 다르게 스타일링하세요.
+   - 잘못된 예: `<img src="assets/table.png" alt="단계별 지원 내용 표">`
+   - 올바른 예 (표/카드형 레이아웃): `<div class="stage-row"><div class="stage-cell"><p>1단계</p></div><div class="stage-cell"><p>3개월</p></div></div>`
+   - 올바른 예 (한 줄 안 색상 혼합): `<p>일반 텍스트 <span style="color:#ee0000; font-weight:700;">강조 텍스트</span></p>`
 
 ## 출력 형식
 각 슬라이드를 다음 형식으로 출력하세요:
@@ -251,6 +261,9 @@ def _edit_system(theme_css: str) -> str:
    마세요 — 감싸는 `<div>`에 적용하세요.
 3. `<div>`에 background-image나 그라디언트를 쓰지 마세요.
 4. 본문이 720×405pt 캔버스(패딩 제외 실사용 335pt 세로)를 넘지 않도록 하세요.
+5. 글자·표·라벨을 이미지로 대체하지 마세요 — 실제 텍스트 태그와 감싸는 `<div>`의
+   background-color로 구현하세요. 한 줄 안에서 색상/굵기가 섞여야 할 때도 이미지 대신 같은
+   `<p>` 안에 여러 `<span>`을 넣어 각각 스타일링하세요.
 
 ## 참고 theme.css
 ```css

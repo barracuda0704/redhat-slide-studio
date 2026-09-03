@@ -62,21 +62,22 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .slide-list-item.drag-over-bottom { box-shadow: inset 0 -2px 0 0 var(--rh-red); }
 
 .slide-insert-zone {
-  height: 14px; margin: -7px 0; position: relative; z-index: 2; cursor: pointer;
+  height: 8px; margin: -4px 0; position: relative; z-index: 2; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.slide-insert-zone.slide-insert-zone-end { height: 20px; margin: 4px 0 0; }
+.slide-insert-zone.slide-insert-zone-end { height: 12px; margin: 4px 0 0; }
 .slide-insert-zone::before {
   content: ''; position: absolute; left: 16px; right: 16px; top: 50%; height: 2px;
   background: var(--rh-red); transform: translateY(-50%); opacity: 0; transition: opacity .12s;
 }
 .slide-insert-zone .zone-plus {
-  display: flex; width: 16px; height: 16px; border-radius: 50%; background: var(--rh-red);
-  color: #fff; font-size: 12px; line-height: 1; align-items: center; justify-content: center;
-  opacity: .4; transition: opacity .12s, transform .12s;
+  display: none; width: 18px; height: 18px; border-radius: 50%; background: var(--rh-red);
+  color: #fff; font-size: 13px; font-weight: 700; line-height: 1; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.3);
 }
+.slide-insert-zone:hover { height: 20px; }
 .slide-insert-zone:hover::before { opacity: 1; }
-.slide-insert-zone:hover .zone-plus { opacity: 1; transform: scale(1.15); }
+.slide-insert-zone:hover .zone-plus { display: flex; }
 
 .present-overlay {
   display: none; position: fixed; inset: 0; z-index: 5000; background: #000;
@@ -694,11 +695,6 @@ function buildWysiwygOverlayScript(colors) {
   #__wysiwyg_color_popup input[type="color"] {
     width: 22px; height: 22px; padding: 0; border: none; border-radius: 5px; cursor: pointer; background: none;
   }
-  #__wysiwyg_add_rect {
-    position: fixed; z-index: 999998; border: 2px dashed #ee0000; background: rgba(238,0,0,.08);
-    pointer-events: none;
-  }
-  [data-wysiwyg-new] { outline: 2px dashed #ee0000 !important; outline-offset: 1px; }
   #__wysiwyg_lock_scrim { position: fixed; inset: 0; z-index: 999997; cursor: not-allowed; }
   .wt-resize-handle {
     position: fixed; z-index: 999999; width: 6px; height: 6px; background: #fff;
@@ -731,8 +727,7 @@ function buildWysiwygOverlayScript(colors) {
   var PALETTE = ${paletteJson};
   var selected = null;
   var toolbar = null;
-  var suppressNextClick = false; // set right after creating a new text box, so the click that follows mouseup doesn't immediately clearSelection() it away
-  var pendingNewEl = null; // a just-created, not-yet-submitted text box — discarded if the user abandons it instead of typing something
+  var suppressNextClick = false; // set right after a resize-handle drag ends, so the click that follows mouseup doesn't immediately clearSelection() everything just resized
 
   // Any element is selectable now — shapes, cards, decorative boxes, not
   // just text/images — except the document root and the overlay's own
@@ -758,19 +753,7 @@ function buildWysiwygOverlayScript(colors) {
     var p = document.getElementById('__wysiwyg_more_popup');
     if (p) p.remove();
   }
-  // A box created by clicking/dragging empty space is never synced into the
-  // saved HTML until the user actually submits content for it — if they
-  // click away or cancel first, just remove it instead of leaving an empty
-  // "새 텍스트" placeholder sitting on the slide forever.
-  function discardPendingNew() {
-    if (pendingNewEl) {
-      pendingNewEl.remove();
-      if (selected === pendingNewEl) selected = null;
-      pendingNewEl = null;
-    }
-  }
   function clearSelection() {
-    discardPendingNew();
     if (selected) selected.removeAttribute('data-wysiwyg-selected');
     selected = null;
     removeToolbar();
@@ -825,11 +808,6 @@ function buildWysiwygOverlayScript(colors) {
   }
 
   function showToolbar(el) {
-    // Switching a not-yet-submitted new box into the normal font/color
-    // toolbar (e.g. the user clicked its placeholder text instead of typing
-    // into the AI popup) means they're now directly editing it — it's no
-    // longer an inert, safe-to-discard placeholder.
-    if (pendingNewEl && pendingNewEl.contains(el)) pendingNewEl = null;
     removeToolbar();
     removeColorPopup();
     removeMorePopup();
@@ -1035,18 +1013,10 @@ function buildWysiwygOverlayScript(colors) {
   }
 
   // Resize/drag handles apply directly to any selected non-text element
-  // (images, shapes, cards, decorative boxes) — only bare text leaves
-  // (p/h1-6/li) don't get their own handles, since resizing a text node
-  // by itself is meaningless; resizableTarget() redirects those to their
-  // wrapping data-wysiwyg-new box when the text IS one of our own inserted
-  // placeholders (clicking a new box's inner <p> still targets the <p>
-  // for font/color styling, but geometry edits act on the wrapping div).
-  function isFreelyPositionable(el) { return !isTextLeaf(el); }
-  function resizableTarget(el) {
-    if (isFreelyPositionable(el)) return el;
-    var wrap = el.closest && el.closest('[data-wysiwyg-new]');
-    return wrap || null;
-  }
+  // (images, shapes, cards, decorative boxes) — bare text leaves (p/h1-6/
+  // li) don't get their own handles, since resizing a text node by itself
+  // is meaningless.
+  function resizableTarget(el) { return isTextLeaf(el) ? null : el; }
 
   var RESIZE_HANDLE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
   var resizeHandleEls = [];
@@ -1166,7 +1136,7 @@ function buildWysiwygOverlayScript(colors) {
     return overflowing;
   }
 
-  function showAiInput(el, isNew) {
+  function showAiInput(el) {
     removeToolbar();
     removeColorPopup();
     removeMorePopup();
@@ -1176,7 +1146,7 @@ function buildWysiwygOverlayScript(colors) {
     toolbar.id = '__wysiwyg_toolbar';
     toolbar.setAttribute('data-wysiwyg-overlay', '');
     toolbar.innerHTML =
-      '<input type="text" placeholder="' + (isNew ? '넣을 내용을 입력하세요 (예: 배지에 NEW 표시)' : '수정 요청 입력 후 Enter') + '">' +
+      '<input type="text" placeholder="수정 요청 입력 후 Enter">' +
       '<button data-act="ai-submit">적용</button>' +
       '<button data-act="ai-cancel">✕</button>';
     document.body.appendChild(toolbar);
@@ -1195,15 +1165,7 @@ function buildWysiwygOverlayScript(colors) {
       submitBtn.disabled = true;
       cancelBtn.disabled = true;
       submitBtn.textContent = '적용 중...';
-      // Once actually submitted it's no longer an abandon-on-click-away
-      // candidate — a click elsewhere shouldn't yank it out from under an
-      // in-flight request. (Restored on failure below so it stays
-      // discardable if the request didn't pan out.)
-      if (isNew) pendingNewEl = null;
-      var fullInstruction = isNew
-        ? '새로 추가된 빈 텍스트 상자에 다음 내용을 채워넣어 주세요 (위치·크기는 유지): ' + instruction
-        : instruction;
-      window.parent.__wysiwygAiEdit(el.outerHTML, fullInstruction);
+      window.parent.__wysiwygAiEdit(el.outerHTML, instruction);
     }
     // Called back from the parent frame (runAiEdit's failure paths) so the
     // popup recovers if the request errors out — on success the whole
@@ -1215,7 +1177,6 @@ function buildWysiwygOverlayScript(colors) {
       submitBtn.disabled = false;
       cancelBtn.disabled = false;
       submitBtn.textContent = '적용';
-      if (isNew) pendingNewEl = el;
     };
     toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
     // Same fix as showToolbar()'s click handler — without stopping
@@ -1229,10 +1190,7 @@ function buildWysiwygOverlayScript(colors) {
       if (submitting) return;
       var act = e.target.getAttribute('data-act');
       if (act === 'ai-submit') submit();
-      else if (act === 'ai-cancel') {
-        if (isNew) { discardPendingNew(); clearSelection(); }
-        else showToolbar(el);
-      }
+      else if (act === 'ai-cancel') showToolbar(el);
     });
   }
 
@@ -1246,7 +1204,6 @@ function buildWysiwygOverlayScript(colors) {
     if (suppressNextClick) { suppressNextClick = false; return; }
     var el = closestEditable(e.target);
     if (!el) { clearSelection(); return; }
-    if (pendingNewEl && !pendingNewEl.contains(el)) discardPendingNew();
     e.preventDefault();
     if (selected) selected.removeAttribute('data-wysiwyg-selected');
     selected = el;
@@ -1256,10 +1213,10 @@ function buildWysiwygOverlayScript(colors) {
   });
 
   // Arrow keys nudge the selected element (1pt, Shift = 10pt); Delete/
-  // Backspace removes it. Only for freely-positioned elements (images, our
-  // own new-box divs, or anything already position:absolute) — nudging a
-  // normal in-flow element would silently rip it out of flow just because
-  // an arrow key was pressed while it happened to be selected.
+  // Backspace removes it. Nudge only applies to non-text elements
+  // (resizableTarget() returns null for bare text leaves) — nudging a
+  // normal in-flow text element would silently rip it out of flow just
+  // because an arrow key was pressed while it happened to be selected.
   document.addEventListener('keydown', function (e) {
     if (!selected) return;
     var targetTag = e.target.tagName;
@@ -1336,11 +1293,9 @@ function buildWysiwygOverlayScript(colors) {
   var dragChromeStart = null; // toolbar/handle starting positions, snapshotted once per drag — see mousemove below
   document.addEventListener('mousedown', function (e) {
     // Any non-text element is drag-to-reposition-able now (images, shapes,
-    // cards) — text leaves stay click-only (select for font editing), and
-    // clicking body itself falls through to the add-content gesture below.
+    // cards) — text leaves stay click-only (select for font editing).
     if (e.target === document.body || isTextLeaf(e.target)) return;
     if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
-    discardPendingNew();
     dragEl = e.target;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
@@ -1400,85 +1355,8 @@ function buildWysiwygOverlayScript(colors) {
     dragChromeStart = null;
   });
 
-  // Click (or drag a rectangle) on truly empty slide space — now that every
-  // element is individually selectable, this only fires when the click
-  // lands directly on <body> itself (not on any shape/card/text/image) —
-  // to insert a new placeholder text box there, then immediately ask what
-  // to put in it via the same AI-edit flow used for editing existing
-  // elements.
-  var ADD_DRAG_THRESHOLD = 6;
-  var addStart = null, addRect = null;
-
-  function createTextBoxAt(clientLeft, clientTop, pxWidth) {
-    var box = refBox(document.body);
-    var div = document.createElement('div');
-    div.setAttribute('data-wysiwyg-new', '');
-    div.style.position = 'absolute';
-    div.style.left = (((clientLeft - box.left) / box.width) * 100).toFixed(3) + '%';
-    div.style.top = (((clientTop - box.top) / box.height) * 100).toFixed(3) + '%';
-    div.style.width = ((pxWidth / box.width) * 100).toFixed(3) + '%';
-    div.style.zIndex = '5';
-    var p = document.createElement('p');
-    p.style.margin = '0';
-    p.textContent = '새 텍스트';
-    div.appendChild(p);
-    document.body.appendChild(div);
-    return div;
-  }
-
-  document.addEventListener('mousedown', function (e) {
-    if (e.button !== 0) return;
-    if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
-    if (e.target.tagName === 'IMG') return;
-    if (closestEditable(e.target)) return;
-    if (pendingNewEl && !pendingNewEl.contains(e.target)) discardPendingNew();
-    addStart = { x: e.clientX, y: e.clientY };
-  });
-  document.addEventListener('mousemove', function (e) {
-    if (!addStart) return;
-    var w = Math.abs(e.clientX - addStart.x), h = Math.abs(e.clientY - addStart.y);
-    if (!addRect && (w >= ADD_DRAG_THRESHOLD || h >= ADD_DRAG_THRESHOLD)) {
-      addRect = document.createElement('div');
-      addRect.id = '__wysiwyg_add_rect';
-      addRect.setAttribute('data-wysiwyg-overlay', '');
-      document.body.appendChild(addRect);
-    }
-    if (addRect) {
-      addRect.style.left = Math.min(e.clientX, addStart.x) + 'px';
-      addRect.style.top = Math.min(e.clientY, addStart.y) + 'px';
-      addRect.style.width = w + 'px';
-      addRect.style.height = h + 'px';
-    }
-  });
-  document.addEventListener('mouseup', function (e) {
-    if (!addStart) return;
-    var wasDrag = !!addRect;
-    var left, top, w;
-    if (wasDrag) {
-      left = Math.min(e.clientX, addStart.x);
-      top = Math.min(e.clientY, addStart.y);
-      w = Math.abs(e.clientX - addStart.x);
-      var h = Math.abs(e.clientY - addStart.y);
-      addRect.remove();
-      addRect = null;
-      if (w < 24 || h < 16) { addStart = null; return; } // too small to be intentional
-    } else {
-      w = 220;
-      left = e.clientX;
-      top = e.clientY;
-    }
-    addStart = null;
-    clearSelection();
-    var el = createTextBoxAt(left, top, w);
-    pendingNewEl = el;
-    selected = el;
-    el.setAttribute('data-wysiwyg-selected', '');
-    suppressNextClick = true;
-    showAiInput(el, true);
-  });
-
   // Called from the parent frame while any AI-edit request (bar or popup)
-  // for this slide is in flight, so the user can't select/drag/add anything
+  // for this slide is in flight, so the user can't select/drag anything
   // else out from under it. A full-viewport scrim below the toolbar's own
   // z-index blocks every other pointer interaction without touching each
   // handler individually.
