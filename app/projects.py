@@ -14,6 +14,33 @@ REDHAT_REL_RE = re.compile(r'(href|src)="\.\./\.\./\.\./\.\./redhat/([^"]+)"')
 ASSET_REL_RE = re.compile(r'src="assets/([^"]+)"')
 REDHAT_URL_RE = re.compile(r"url\(\s*['\"]?\.\./\.\./\.\./\.\./redhat/([^'\")]+)['\"]?\s*\)")
 ASSET_URL_RE = re.compile(r"url\(\s*['\"]?assets/([^'\")]+)['\"]?\s*\)")
+FOOTER_BLOCK_RE = re.compile(r'(<footer\b[^>]*>)(.*?)(</footer>)', re.IGNORECASE | re.DOTALL)
+FOOTER_PAGE_NUM_RE = re.compile(r'(<p>\s*)\d+(\s*/\s*)\d+(\s*</p>)')
+
+
+def _resync_footer_page_numbers(html_dir: Path, ordered_filenames: list[str]) -> None:
+    """Keep each slide's "N / total" footer in sync with the deck's actual
+    slide count/order — otherwise every add/delete/reorder leaves stale
+    numbers behind (this is scoped to the <footer> block only, since some
+    slide bodies legitimately contain unrelated "8 / 9"-shaped text)."""
+    total = len(ordered_filenames)
+    for i, filename in enumerate(ordered_filenames, start=1):
+        path = html_dir / filename
+        if not path.exists():
+            continue
+        html = path.read_text("utf-8")
+
+        def _replace_footer(m: re.Match, page_num: int = i, total: int = total) -> str:
+            inner = FOOTER_PAGE_NUM_RE.sub(
+                lambda pm: f"{pm.group(1)}{page_num}{pm.group(2)}{total}{pm.group(3)}", m.group(2)
+            )
+            return m.group(1) + inner + m.group(3)
+
+        new_html = FOOTER_BLOCK_RE.sub(_replace_footer, html, count=1)
+        if new_html != html:
+            path.write_text(new_html, "utf-8")
+
+
 def _blank_slide_html(deck_title: str, page_num: int, total: int) -> str:
     """A blank slide that already follows the deck's standard anatomy
     (eyebrow + title-wrap + footer) so it doesn't stand out as a different
@@ -333,10 +360,12 @@ class ProjectManager:
             if not p.exists():
                 raise ValueError(f"슬라이드 '{filename}'을 찾을 수 없습니다.")
             p.unlink()
+            remaining = sorted(f.name for f in html_dir.glob("slide*.html"))
+            _resync_footer_page_numbers(html_dir, remaining)
             meta = self._load_meta(name, version)
             if meta:
                 meta["updated"] = self._now_iso()
-                meta["slides"] = len(list(html_dir.glob("slide*.html")))
+                meta["slides"] = len(remaining)
                 self._save_meta(name, meta, version)
 
     def add_blank_slide(self, name: str, version: str = "v1.0") -> str:
@@ -350,9 +379,11 @@ class ProjectManager:
             deck_title = meta.get("title", name) if meta else name
             total = len(list(html_dir.glob("slide*.html"))) + 1
             (html_dir / filename).write_text(_blank_slide_html(deck_title, next_num, total), "utf-8")
+            all_slides = sorted(f.name for f in html_dir.glob("slide*.html"))
+            _resync_footer_page_numbers(html_dir, all_slides)
             if meta:
                 meta["updated"] = self._now_iso()
-                meta["slides"] = len(list(html_dir.glob("slide*.html")))
+                meta["slides"] = len(all_slides)
                 self._save_meta(name, meta, version)
             return filename
 
@@ -379,6 +410,8 @@ class ProjectManager:
                 new_name = f"slide{i + 1:02d}-{slug}.html"
                 tmp.rename(html_dir / new_name)
                 new_order.append(new_name)
+
+            _resync_footer_page_numbers(html_dir, new_order)
 
             meta = self._load_meta(name, version)
             if meta:
