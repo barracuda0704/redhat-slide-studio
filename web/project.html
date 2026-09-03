@@ -330,23 +330,11 @@ main.content { flex: 1; min-height: 0; display: flex; }
       <!-- Slide: viewer toolbar + preview + collapsible raw-HTML editor -->
       <div id="slideTab">
         <div class="viewer-toolbar" id="viewerToolbar">
-          <button class="btn" id="undoBtn" onclick="restoreSlideBackup()" disabled title="마지막 저장 이전 버전으로 되돌리기">
+          <button class="btn" id="undoBtn" onclick="restoreAllSlidesBackup()" disabled title="프로젝트의 모든 슬라이드를 각자의 마지막 저장 이전 버전으로 되돌리기">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3.5-7.1"/><path d="M3 4v5h5"/></svg>
-            되돌리기
-          </button>
-          <button type="button" class="btn" onclick="document.getElementById('assetUploadInput').click()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
-            이미지 업로드
+            전체 되돌리기
           </button>
           <input type="file" id="assetUploadInput" accept="image/*" style="display:none">
-          <button type="button" class="btn" onclick="openAssetsModal()" title="파일 관리·로고 검색·사진 검색">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><circle cx="9" cy="10" r="2"/><path d="M4 16l4.5-4.5a1.5 1.5 0 0 1 2 0L16 17"/><path d="M14 14l1.5-1.5a1.5 1.5 0 0 1 2 0L20 15"/></svg>
-            에셋
-          </button>
-          <button class="btn" id="imageGenBtn" onclick="showImageGenStub()" title="이미지 생성 (준비 중)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-            이미지 생성
-          </button>
           <div style="flex:1"></div>
           <span class="html-dirty-dot" id="htmlDirtyDot" title="저장되지 않은 변경사항"></span>
           <button class="btn btn-primary" id="saveSlideBtn" onclick="saveSlideHtml()" disabled>저장</button>
@@ -537,6 +525,7 @@ async function loadProject(autoSelect = true) {
   document.getElementById('exportHtmlBtn').disabled = !hasSlides;
   document.getElementById('exportPdfBtn').disabled = !hasSlides;
   document.getElementById('presentBtn').disabled = !hasSlides;
+  document.getElementById('undoBtn').disabled = !hasSlides;
 
   const warningEl = document.getElementById('buildWarning');
   const warningText = project.build_warning || project.generation_warning;
@@ -1515,35 +1504,37 @@ async function selectSlide(filename) {
     htmlCM.clearHistory();
     renderPreview(data.html);
   }
-  checkSlideBackup(filename);
 }
 
-async function checkSlideBackup(filename) {
-  const undoBtn = document.getElementById('undoBtn');
-  try {
-    const res = await fetch('/api/projects/' + projectName + '/slides/' + filename + '/backup');
-    const data = await res.json();
-    undoBtn.disabled = !(res.ok && data.has_backup);
-  } catch(e) {
-    undoBtn.disabled = true;
-  }
-}
+// Reverts every slide in the project to its own last-saved backup (each
+// slide keeps one backup snapshot, taken the moment it was last saved) —
+// not just whichever slide happens to be open, since this button now lives
+// in the project-wide toolbar rather than inside a per-slide editor.
+async function restoreAllSlidesBackup() {
+  const slides = project && project.slides || [];
+  if (!slides.length) return;
+  if (blockIfAiEditBusy()) return;
+  if (!confirm('프로젝트의 모든 슬라이드를 각각의 마지막 저장 이전 버전으로 되돌립니다. 지금 편집 중인 내용은 사라집니다. 계속하시겠습니까?')) return;
 
-async function restoreSlideBackup() {
-  if (!currentSlide) return;
-  if (!confirm('마지막 저장 이전 버전으로 되돌립니다. 지금 편집 중인 내용은 사라집니다. 계속하시겠습니까?')) return;
-  const res = await fetch('/api/projects/' + projectName + '/slides/' + currentSlide + '/restore', {method: 'POST'});
-  if (res.ok) {
-    const data = await res.json();
-    originalHtml = data.html;
-    htmlCM.setValue(data.html);
-    setDirty(false);
-    renderPreview(data.html);
-    invalidateThumb(currentSlide);
-    showToast('이전 버전으로 되돌렸습니다.');
-  } else {
-    showToast('되돌리기 실패', true);
+  let restoredCount = 0;
+  for (const filename of slides) {
+    const backupRes = await fetch('/api/projects/' + projectName + '/slides/' + filename + '/backup');
+    const backupData = backupRes.ok ? await backupRes.json() : {has_backup: false};
+    if (!backupData.has_backup) continue;
+
+    const res = await fetch('/api/projects/' + projectName + '/slides/' + filename + '/restore', {method: 'POST'});
+    if (!res.ok) continue;
+    restoredCount++;
+    invalidateThumb(filename);
+    if (filename === currentSlide) {
+      const data = await res.json();
+      originalHtml = data.html;
+      htmlCM.setValue(data.html);
+      setDirty(false);
+      renderPreview(data.html);
+    }
   }
+  showToast(restoredCount > 0 ? restoredCount + '개 슬라이드를 되돌렸습니다.' : '되돌릴 이전 버전이 없습니다.');
 }
 
 async function deleteSlide(filename, event) {
