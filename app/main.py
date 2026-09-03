@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from pathlib import Path
 from urllib.parse import quote
 
@@ -603,6 +604,29 @@ async def api_import_asset_url(name: str, body: ImportAssetUrlRequest, _: User =
         raise HTTPException(400, f"이미지를 가져오지 못했습니다: {e}")
     try:
         saved_name = project_manager.save_asset(name, body.filename, res.content)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"filename": saved_name}
+
+
+class GenerateImageRequest(BaseModel):
+    prompt: str
+    aspect_ratio: str = "16:9"
+
+
+@app.post("/api/projects/{name}/generate-image")
+async def api_generate_image(name: str, body: GenerateImageRequest, _: User = Depends(get_current_user)):
+    from . import generator
+    if not body.prompt.strip():
+        raise HTTPException(400, "프롬프트를 입력하세요.")
+    try:
+        image_bytes = await asyncio.to_thread(generator.generate_image, body.prompt.strip(), body.aspect_ratio)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "이미지 생성 시간이 초과되었습니다.")
+    except Exception as e:
+        raise HTTPException(502, f"이미지 생성 실패: {e}")
+    try:
+        saved_name = project_manager.save_asset(name, "generated.png", image_bytes)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"filename": saved_name}

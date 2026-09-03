@@ -18,6 +18,19 @@ class Settings(BaseSettings):
     MODEL_NAME: str = "claude-opus-4-6"
     MAX_OUTPUT_TOKENS: int = 32000
 
+    # Image generation shells out to the locally-installed `cursor-agent` CLI
+    # (its cursor.GenerateImage tool) rather than Vertex AI Imagen/Gemini —
+    # every image model on this GCP project is blocked by the org's
+    # constraints/vertexai.allowedModels policy. Only works when the app
+    # runs natively on a machine with a logged-in cursor-agent session (this
+    # is why the app was moved off Docker onto a native launchd service).
+    CURSOR_AGENT_MODEL: str = "claude-sonnet-5-medium"
+    # Cursor's backend has shown sustained resource_exhausted errors on
+    # heavier-demand models (Claude, Grok) while lighter models kept working
+    # throughout — falls back to this one rather than failing outright.
+    CURSOR_AGENT_FALLBACK_MODEL: str = "gpt-5.4-mini-low"
+    CURSOR_AGENT_TIMEOUT_SECONDS: int = 120
+
     ADMIN_EMAIL: str = "barracuda0704@gmail.com"
     ADMIN_INITIAL_PASSWORD: str = "***REMOVED***"
     SESSION_COOKIE_NAME: str = "session_token"

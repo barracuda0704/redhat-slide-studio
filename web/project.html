@@ -260,6 +260,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
   display: inline-flex; align-items: center; gap: 6px; line-height: 1;
 }
 .viewer-toolbar .btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.viewer-toolbar .btn.active { background: var(--rh-red); color: #fff; border-color: var(--rh-red); }
 
 .ai-edit-bar {
   flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 10px 16px;
@@ -353,6 +354,10 @@ main.content { flex: 1; min-height: 0; display: flex; }
             전체 되돌리기
           </button>
           <input type="file" id="assetUploadInput" accept="image/*" style="display:none">
+          <button class="btn" id="imageGenBtn" onclick="toggleImageGenMode()" disabled title="슬라이드 위에서 영역을 드래그해 AI로 이미지를 생성해 넣기">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            이미지 생성
+          </button>
           <div style="flex:1"></div>
           <span class="html-dirty-dot" id="htmlDirtyDot" title="저장되지 않은 변경사항"></span>
           <button class="btn btn-primary" id="saveSlideBtn" onclick="saveSlideHtml()" disabled>저장</button>
@@ -476,6 +481,7 @@ let originalHtml = '';
 let htmlDirty = false;
 let liveUpdateTimer = null;
 let aiEditInProgress = false;
+let imageGenModeOn = false;
 
 const htmlCM = CodeMirror.fromTextArea(document.getElementById('htmlEditor'), {
   mode: 'htmlmixed',
@@ -548,6 +554,7 @@ async function loadProject(autoSelect = true) {
   document.getElementById('exportHtmlBtn').disabled = !hasSlides;
   document.getElementById('exportPdfBtn').disabled = !hasSlides;
   document.getElementById('presentBtn').disabled = !hasSlides;
+  document.getElementById('imageGenBtn').disabled = !hasSlides;
 
   const warningEl = document.getElementById('buildWarning');
   const warningText = project.build_warning || project.generation_warning;
@@ -723,6 +730,16 @@ function buildWysiwygOverlayScript(colors) {
     width: 22px; height: 22px; padding: 0; border: none; border-radius: 5px; cursor: pointer; background: none;
   }
   #__wysiwyg_lock_scrim { position: fixed; inset: 0; z-index: 999997; cursor: not-allowed; }
+  #__wysiwyg_imagegen_box {
+    position: absolute; z-index: 999998; border: 2px dashed #ee0000; background: rgba(238,0,0,.08);
+    box-sizing: border-box; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #__wysiwyg_imagegen_box .ig-status {
+    background: #151515; color: #fff; font-family: -apple-system, "Segoe UI", sans-serif;
+    font-size: 11px; padding: 4px 8px; border-radius: 4px; display: none;
+  }
+  #__wysiwyg_imagegen_box.ig-loading .ig-status { display: block; }
   .wt-resize-handle {
     position: fixed; z-index: 999999; width: 6px; height: 6px; background: #fff;
     border: 1.5px solid #ee0000; border-radius: 2px; transform: translate(-50%, -50%);
@@ -1325,6 +1342,7 @@ function buildWysiwygOverlayScript(colors) {
   var dragEl = null, dragBox = null, dragStartX = 0, dragStartY = 0, dragOffX = 0, dragOffY = 0, dragMoved = false;
   var dragChromeStart = null; // toolbar/handle starting positions, snapshotted once per drag — see mousemove below
   document.addEventListener('mousedown', function (e) {
+    if (imageGenMode) { igMouseDown(e); return; }
     // Any non-text element is drag-to-reposition-able now (images, shapes,
     // cards) — text leaves stay click-only (select for font editing).
     if (e.target === document.body || isTextLeaf(e.target)) return;
@@ -1338,6 +1356,7 @@ function buildWysiwygOverlayScript(colors) {
     // layout untouched.
   });
   document.addEventListener('mousemove', function (e) {
+    if (imageGenMode) { igMouseMove(e); return; }
     if (!dragEl) return;
     if (!dragMoved) {
       if (Math.abs(e.clientX - dragStartX) < DRAG_THRESHOLD && Math.abs(e.clientY - dragStartY) < DRAG_THRESHOLD) return;
@@ -1375,7 +1394,8 @@ function buildWysiwygOverlayScript(colors) {
       });
     }
   });
-  document.addEventListener('mouseup', function () {
+  document.addEventListener('mouseup', function (e) {
+    if (imageGenMode) { igMouseUp(e); return; }
     if (dragEl && dragMoved) {
       syncBack();
       // One full rebuild now that dragging is done — re-clamps the toolbar
@@ -1387,6 +1407,153 @@ function buildWysiwygOverlayScript(colors) {
     dragMoved = false;
     dragChromeStart = null;
   });
+
+  // ── Image generation: drag-select a region on the slide, describe it,
+  // and insert the generated image at exactly that spot ──
+  var imageGenMode = false;
+  var igBox = null;
+  var igStartX = 0, igStartY = 0;
+  var igRegion = null; // {left,top,width,height} in % of body — kept until insert/fail resolves it
+
+  window.__wysiwygSetImageGenMode = function (v) {
+    imageGenMode = !!v;
+    document.body.style.cursor = imageGenMode ? 'crosshair' : '';
+    if (!imageGenMode) { removeImageGenBox(); igRegion = null; }
+  };
+
+  function removeImageGenBox() {
+    if (igBox) { igBox.remove(); igBox = null; }
+  }
+
+  function igMouseDown(e) {
+    if (e.target.closest && e.target.closest('[data-wysiwyg-overlay]')) return;
+    e.preventDefault();
+    removeImageGenBox();
+    igStartX = e.clientX;
+    igStartY = e.clientY;
+    igBox = document.createElement('div');
+    igBox.id = '__wysiwyg_imagegen_box';
+    igBox.setAttribute('data-wysiwyg-overlay', '');
+    igBox.style.left = igStartX + 'px';
+    igBox.style.top = igStartY + 'px';
+    igBox.style.width = '0px';
+    igBox.style.height = '0px';
+    document.body.appendChild(igBox);
+  }
+
+  function igMouseMove(e) {
+    if (!igBox || igBox.classList.contains('ig-loading')) return;
+    var left = Math.min(igStartX, e.clientX);
+    var top = Math.min(igStartY, e.clientY);
+    igBox.style.left = left + 'px';
+    igBox.style.top = top + 'px';
+    igBox.style.width = Math.abs(e.clientX - igStartX) + 'px';
+    igBox.style.height = Math.abs(e.clientY - igStartY) + 'px';
+  }
+
+  function nearestAspectRatio(w, h) {
+    var ratio = w / h;
+    var candidates = [
+      {label: '1:1', value: 1},
+      {label: '4:3', value: 4 / 3},
+      {label: '3:4', value: 3 / 4},
+      {label: '16:9', value: 16 / 9},
+      {label: '9:16', value: 9 / 16},
+    ];
+    var best = candidates[0], bestDiff = Infinity;
+    candidates.forEach(function (c) {
+      var diff = Math.abs(Math.log(ratio / c.value));
+      if (diff < bestDiff) { bestDiff = diff; best = c; }
+    });
+    return best.label;
+  }
+
+  function igMouseUp(e) {
+    if (!igBox) return;
+    var rect = igBox.getBoundingClientRect();
+    if (rect.width < 20 || rect.height < 20) { removeImageGenBox(); return; }
+    var box = refBox(document.body);
+    igRegion = {
+      left: ((rect.left - box.left) / box.width) * 100,
+      top: ((rect.top - box.top) / box.height) * 100,
+      width: (rect.width / box.width) * 100,
+      height: (rect.height / box.height) * 100,
+      aspectRatio: nearestAspectRatio(rect.width, rect.height),
+    };
+    showImageGenPrompt(rect);
+  }
+
+  function showImageGenPrompt(rect) {
+    removeToolbar();
+    removeColorPopup();
+    removeMorePopup();
+    toolbar = document.createElement('div');
+    var myToolbar = toolbar;
+    toolbar.id = '__wysiwyg_toolbar';
+    toolbar.setAttribute('data-wysiwyg-overlay', '');
+    toolbar.innerHTML =
+      '<input type="text" placeholder="생성할 이미지 설명 입력 후 Enter">' +
+      '<button data-act="ig-submit">생성</button>' +
+      '<button data-act="ig-cancel">✕</button>';
+    document.body.appendChild(toolbar);
+    clampBoxPosition(toolbar, rect.left, rect.bottom + 8);
+    var input = toolbar.querySelector('input');
+    input.focus();
+    var submitting = false;
+    function cancel() {
+      if (toolbar === myToolbar) toolbar.remove();
+      removeImageGenBox();
+      igRegion = null;
+    }
+    function submit() {
+      if (submitting) return;
+      var prompt = input.value.trim();
+      if (!prompt) return;
+      submitting = true;
+      toolbar.remove();
+      igBox.classList.add('ig-loading');
+      igBox.innerHTML = '<span class="ig-status">이미지 생성중...</span>';
+      window.parent.__wysiwygRequestImageGen(prompt, igRegion.aspectRatio);
+    }
+    toolbar.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    toolbar.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (submitting) return;
+      var act = e.target.getAttribute('data-act');
+      if (act === 'ig-submit') submit();
+      else if (act === 'ig-cancel') cancel();
+    });
+    toolbar.addEventListener('keydown', function (e) {
+      e.stopPropagation();
+      if (e.key === 'Enter') submit();
+      else if (e.key === 'Escape') cancel();
+    });
+  }
+
+  // Called from the parent frame once the generated image is saved as an
+  // asset — assetUrl is already the rewritten "/api/projects/.../assets/..."
+  // form the live preview uses (syncBack() reverses it back to the stored
+  // "assets/..." form same as every other image the WYSIWYG tools insert).
+  window.__wysiwygInsertGeneratedImage = function (assetUrl) {
+    if (!igRegion) return;
+    var img = document.createElement('img');
+    img.src = assetUrl;
+    img.alt = '';
+    img.style.position = 'absolute';
+    img.style.left = igRegion.left.toFixed(3) + '%';
+    img.style.top = igRegion.top.toFixed(3) + '%';
+    img.style.width = igRegion.width.toFixed(3) + '%';
+    img.style.height = igRegion.height.toFixed(3) + '%';
+    document.body.appendChild(img);
+    removeImageGenBox();
+    igRegion = null;
+    syncBack();
+  };
+
+  window.__wysiwygImageGenFailed = function () {
+    removeImageGenBox();
+    igRegion = null;
+  };
 
   // Called from the parent frame while any AI-edit request (bar or popup)
   // for this slide is in flight, so the user can't select/drag anything
@@ -1776,6 +1943,55 @@ async function applyAiEdit() {
 window.__wysiwygAiEdit = function(targetOuterHtml, instruction) {
   if (!instruction) return;
   runAiEdit(instruction, targetOuterHtml);
+};
+
+function toggleImageGenMode() {
+  if (!imageGenModeOn && blockIfAiEditBusy()) return;
+  imageGenModeOn = !imageGenModeOn;
+  document.getElementById('imageGenBtn').classList.toggle('active', imageGenModeOn);
+  const frame = document.getElementById('previewFrame');
+  const win = frame && frame.contentWindow;
+  if (win && win.__wysiwygSetImageGenMode) win.__wysiwygSetImageGenMode(imageGenModeOn);
+  if (imageGenModeOn) showToast('슬라이드 위에서 드래그해 이미지를 넣을 영역을 선택하세요.');
+}
+
+// Called by the WYSIWYG overlay once the user drags a region on the slide
+// and submits a description for it — scoped to whatever slide is open
+// right now, same as AI edit.
+window.__wysiwygRequestImageGen = async function (prompt, aspectRatio) {
+  if (!currentSlide || aiEditInProgress) return;
+  const targetSlide = currentSlide;
+  const frame = document.getElementById('previewFrame');
+  aiEditInProgress = true;
+  setNavigationLocked(true);
+  document.querySelector('.ai-processing-text').textContent = '이미지 생성중';
+  try {
+    const res = await fetch('/api/projects/' + projectName + '/generate-image', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt, aspect_ratio: aspectRatio}),
+    });
+    const data = await res.json();
+    if (res.ok && currentSlide === targetSlide) {
+      const assetUrl = '/api/projects/' + projectName + '/assets/' + data.filename;
+      frame.contentWindow.__wysiwygInsertGeneratedImage(assetUrl);
+      showToast('이미지를 생성해 삽입했습니다. 확인 후 저장하세요.');
+    } else if (!res.ok) {
+      showToast('이미지 생성 실패: ' + (data.detail || ''), true);
+      if (frame.contentWindow.__wysiwygImageGenFailed) frame.contentWindow.__wysiwygImageGenFailed();
+    } else {
+      showToast('이미지가 생성됐지만 화면이 전환되어 반영하지 않았습니다.', true);
+    }
+  } catch (e) {
+    showToast('이미지 생성 오류: ' + e.message, true);
+    if (frame.contentWindow.__wysiwygImageGenFailed) frame.contentWindow.__wysiwygImageGenFailed();
+  }
+  aiEditInProgress = false;
+  setNavigationLocked(false);
+  document.querySelector('.ai-processing-text').textContent = 'AI 반영중';
+  imageGenModeOn = false;
+  document.getElementById('imageGenBtn').classList.remove('active');
+  if (frame.contentWindow.__wysiwygSetImageGenMode) frame.contentWindow.__wysiwygSetImageGenMode(false);
 };
 
 // On success renderPreview() reloads the iframe, which wipes the WYSIWYG

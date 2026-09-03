@@ -1,5 +1,8 @@
 import json
 import re
+import shutil
+import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +29,71 @@ def _create_message(client, **kwargs):
     # keep using response.content[0].text / response.stop_reason as before.
     with client.messages.stream(**kwargs) as stream:
         return stream.get_final_message()
+
+
+def _is_retriable(detail: str) -> bool:
+    return "resource_exhausted" in detail or "RetriableError" in detail
+
+
+def _run_cursor_agent(model: str, instruction: str, cwd: str, output_path: Path, attempts: int) -> str | None:
+    """Runs cursor-agent up to `attempts` times against one model. Returns
+    None on success (output_path now holds the image), or the last failure
+    detail string if every attempt failed."""
+    last_detail = "no output"
+    for _ in range(attempts):
+        if output_path.exists():
+            output_path.unlink()
+        result = subprocess.run(
+            ["cursor-agent", "-p", "--force", "--model", model, "--output-format", "json", instruction],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=settings.CURSOR_AGENT_TIMEOUT_SECONDS,
+        )
+        if output_path.exists():
+            return None
+        last_detail = (result.stdout.strip() or result.stderr.strip() or "no output")[:500]
+        if not _is_retriable(last_detail):
+            break
+    return last_detail
+
+
+def generate_image(prompt: str, aspect_ratio: str = "16:9") -> bytes:
+    """Generate a single image via the locally-installed `cursor-agent` CLI's
+    native cursor.GenerateImage tool and return its raw bytes.
+
+    Every Vertex AI image model (Gemini and Imagen) is blocked on this GCP
+    project by the org's constraints/vertexai.allowedModels policy, so this
+    shells out to Cursor's CLI instead — which only works because the app
+    now runs natively on a machine with a logged-in cursor-agent session
+    (its auth lives in the macOS Keychain, so it can't be mounted into a
+    Docker container the way the Vertex ADC credentials are)."""
+    tmpdir = tempfile.mkdtemp(prefix="cursor-imagegen-")
+    try:
+        output_path = Path(tmpdir) / "output.png"
+        instruction = (
+            "Do not ask for confirmation. Immediately call your native image "
+            "generation tool right now to generate an image matching this "
+            f"description: {prompt}\n"
+            f"Use a {aspect_ratio} aspect ratio if the tool supports it. "
+            f"Save the resulting image as a PNG file at exactly this absolute "
+            f"path: {output_path}"
+        )
+        # Cursor's backend has shown both brief, retriable connection drops
+        # and sustained resource_exhausted stretches on specific (usually
+        # heavier-demand) models — retry the requested model a couple of
+        # times, then fall back to a model that's held up reliably rather
+        # than failing the whole request.
+        detail = _run_cursor_agent(settings.CURSOR_AGENT_MODEL, instruction, tmpdir, output_path, attempts=2)
+        if detail is None:
+            return output_path.read_bytes()
+        if _is_retriable(detail) and settings.CURSOR_AGENT_FALLBACK_MODEL != settings.CURSOR_AGENT_MODEL:
+            detail = _run_cursor_agent(settings.CURSOR_AGENT_FALLBACK_MODEL, instruction, tmpdir, output_path, attempts=2)
+            if detail is None:
+                return output_path.read_bytes()
+        raise RuntimeError(f"이미지 생성 결과 파일을 찾지 못했습니다: {detail}")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def _load_theme_css(engine_dir: str) -> str:
