@@ -6,7 +6,8 @@ logs/
 data/*.json
 node_modules/
 *.pptx
-engine/projects/
+engine/projects
+engine/package-lock.json
 data/projects/
 .DS_Store
 *.egg-info/
