@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def _run_cursor_agent(model: str, instruction: str, cwd: str, output_path: Path,
     None on success (output_path now holds the image), or the last failure
     detail string if every attempt failed."""
     last_detail = "no output"
-    for _ in range(attempts):
+    for attempt in range(attempts):
         if output_path.exists():
             output_path.unlink()
         result = subprocess.run(
@@ -53,8 +54,19 @@ def _run_cursor_agent(model: str, instruction: str, cwd: str, output_path: Path,
         if output_path.exists():
             return None
         last_detail = (result.stdout.strip() or result.stderr.strip() or "no output")[:500]
+        # Logged unconditionally (not just on final failure) so a real
+        # occurrence — unlike ad-hoc reproduction attempts afterward, which
+        # can easily land in a different, already-recovered window — is
+        # actually diagnosable from logs/web.log instead of just showing up
+        # to the user as an opaque 502.
+        print(f"[generate_image] model={model} attempt={attempt + 1}/{attempts} failed: {last_detail}")
         if not _is_retriable(last_detail):
             break
+        if attempt < attempts - 1:
+            # A brief pause gives a transient resource_exhausted window an
+            # actual chance to clear instead of hammering the same
+            # overloaded endpoint again immediately.
+            time.sleep(5)
     return last_detail
 
 
