@@ -62,10 +62,10 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .slide-list-item.drag-over-bottom { box-shadow: inset 0 -2px 0 0 var(--rh-red); }
 
 .slide-insert-zone {
-  height: 8px; margin: -4px 0; position: relative; z-index: 2; cursor: pointer;
+  height: 16px; margin: -8px 0; position: relative; z-index: 2; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.slide-insert-zone.slide-insert-zone-end { height: 12px; margin: 4px 0 0; }
+.slide-insert-zone.slide-insert-zone-end { height: 20px; margin: 4px 0 0; }
 .slide-insert-zone::before {
   content: ''; position: absolute; left: 16px; right: 16px; top: 50%; height: 2px;
   background: var(--rh-red); transform: translateY(-50%); opacity: 0; transition: opacity .12s;
@@ -81,7 +81,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
 }
 .slide-insert-zone .zone-plus::before { width: 8px; height: 2px; }
 .slide-insert-zone .zone-plus::after { width: 2px; height: 8px; }
-.slide-insert-zone:hover { height: 20px; }
 .slide-insert-zone:hover::before { opacity: 1; }
 .slide-insert-zone:hover .zone-plus { display: block; }
 
