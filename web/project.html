@@ -56,29 +56,27 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .slide-action-btn:disabled { opacity: .3; cursor: default; }
 .slide-action-btn:disabled:hover { background: transparent; color: var(--text-muted); }
 .slide-action-btn.slide-action-danger:hover { background: var(--danger-bg); color: var(--danger); }
-.sidebar-add-slide { padding: 8px 16px 4px; }
-.sidebar-add-slide button { width: 100%; justify-content: center; font-size: 12px; padding: 6px 10px; }
-
 .slide-list-item[draggable="true"] { cursor: grab; }
 .slide-list-item.dragging { opacity: .4; }
 .slide-list-item.drag-over-top { box-shadow: inset 0 2px 0 0 var(--rh-red); }
 .slide-list-item.drag-over-bottom { box-shadow: inset 0 -2px 0 0 var(--rh-red); }
 
 .slide-insert-zone {
-  height: 6px; margin: -3px 0; position: relative; z-index: 2; cursor: pointer;
+  height: 14px; margin: -7px 0; position: relative; z-index: 2; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
+.slide-insert-zone.slide-insert-zone-end { height: 20px; margin: 4px 0 0; }
 .slide-insert-zone::before {
   content: ''; position: absolute; left: 16px; right: 16px; top: 50%; height: 2px;
   background: var(--rh-red); transform: translateY(-50%); opacity: 0; transition: opacity .12s;
 }
 .slide-insert-zone .zone-plus {
-  display: none; width: 16px; height: 16px; border-radius: 50%; background: var(--rh-red);
+  display: flex; width: 16px; height: 16px; border-radius: 50%; background: var(--rh-red);
   color: #fff; font-size: 12px; line-height: 1; align-items: center; justify-content: center;
+  opacity: .4; transition: opacity .12s, transform .12s;
 }
-.slide-insert-zone:hover { height: 20px; }
 .slide-insert-zone:hover::before { opacity: 1; }
-.slide-insert-zone:hover .zone-plus { display: flex; }
+.slide-insert-zone:hover .zone-plus { opacity: 1; transform: scale(1.15); }
 
 .present-overlay {
   display: none; position: fixed; inset: 0; z-index: 5000; background: #000;
@@ -282,11 +280,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
         <div style="font-size:11px; color:var(--text-muted);" id="slideCount">0장</div>
       </div>
       <div id="slideList"></div>
-      <div class="sidebar-add-slide">
-        <button class="btn btn-sm" onclick="addBlankSlide()" title="새 슬라이드">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-        </button>
-      </div>
     </div>
 
     <!-- Main area -->
@@ -540,32 +533,56 @@ async function loadProject(autoSelect = true) {
   const slides = project.slides || [];
   document.getElementById('slideCount').textContent = slides.length + '장';
   const list = document.getElementById('slideList');
-  list.innerHTML = '';
+  // Reuse existing rows (keyed by filename) and reposition them with
+  // appendChild instead of tearing the whole list down (list.innerHTML='')
+  // and rebuilding it every render — loadProject() re-renders this on
+  // every reorder/insert/delete, and innerHTML='' actually detaches every
+  // child first (destroying each row's thumbnail <iframe> and its loaded
+  // content) even for rows we meant to keep, which is what made every
+  // thumbnail go blank and reordering feel slow/flickery. appendChild on a
+  // node that's already in the list *moves* it in place without ever
+  // detaching it, so a reused row's iframe keeps its already-rendered
+  // content across the reorder.
+  const existingItems = {};
+  list.querySelectorAll('.slide-list-item').forEach((el) => { existingItems[el.dataset.filename] = el; });
+  const keepFilenames = new Set(slides);
+  Object.keys(existingItems).forEach((fn) => { if (!keepFilenames.has(fn)) existingItems[fn].remove(); });
+  list.querySelectorAll('.slide-insert-zone').forEach((z) => z.remove());
   slides.forEach((s, i) => {
     list.appendChild(createInsertZone(i));
-    const item = document.createElement('div');
-    item.className = 'slide-list-item' + (currentSlide === s ? ' active' : '');
-    item.dataset.filename = s;
-    item.innerHTML =
-      '<div class="slide-thumb"><iframe scrolling="no"></iframe></div>' +
-      '<div class="slide-row">' +
-        '<span class="slide-num">' + (i+1) + '</span>' +
-        '<span class="slide-name">' + s.replace('.html','') + '</span>' +
-        '<span class="slide-actions">' +
-          '<button class="slide-action-btn" title="위로"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
-          '<button class="slide-action-btn" title="아래로"' + (i === slides.length - 1 ? ' disabled' : '') + '>↓</button>' +
-          '<button class="slide-action-btn slide-action-danger" title="삭제">×</button>' +
-        '</span>' +
-      '</div>';
+    let item = existingItems[s];
+    if (item) {
+      item.className = 'slide-list-item' + (currentSlide === s ? ' active' : '');
+      item.querySelector('.slide-num').textContent = i + 1;
+    } else {
+      item = document.createElement('div');
+      item.className = 'slide-list-item' + (currentSlide === s ? ' active' : '');
+      item.dataset.filename = s;
+      item.innerHTML =
+        '<div class="slide-thumb"><iframe scrolling="no"></iframe></div>' +
+        '<div class="slide-row">' +
+          '<span class="slide-num">' + (i+1) + '</span>' +
+          '<span class="slide-name">' + s.replace('.html','') + '</span>' +
+          '<span class="slide-actions">' +
+            '<button class="slide-action-btn" title="위로">↑</button>' +
+            '<button class="slide-action-btn" title="아래로">↓</button>' +
+            '<button class="slide-action-btn slide-action-danger" title="삭제">×</button>' +
+          '</span>' +
+        '</div>';
+      renderSlideThumb(item.querySelector('.slide-thumb'), s);
+    }
+    item.dataset.index = i;
     item.onclick = () => selectSlide(s);
-    renderSlideThumb(item.querySelector('.slide-thumb'), s);
     const [upBtn, downBtn, delBtn] = item.querySelectorAll('.slide-action-btn');
+    upBtn.disabled = i === 0;
+    downBtn.disabled = i === slides.length - 1;
     upBtn.onclick = (e) => moveSlide(i, -1, e);
     downBtn.onclick = (e) => moveSlide(i, 1, e);
     delBtn.onclick = (e) => deleteSlide(s, e);
-    attachSlideDragHandlers(item, i);
+    attachSlideDragHandlers(item);
     list.appendChild(item);
   });
+  list.appendChild(createInsertZone(slides.length, true));
 
   if (autoSelect && slides.length > 0 && !currentSlide) selectSlide(slides[0]);
 
@@ -653,6 +670,7 @@ function buildWysiwygOverlayScript(colors) {
     cursor: pointer; font-size: 11px; line-height: 1; font-family: inherit;
   }
   #__wysiwyg_toolbar button:hover { background: #ee0000; }
+  #__wysiwyg_toolbar button.wt-active { background: #ee0000; box-shadow: inset 0 0 0 1px #fff; }
   #__wysiwyg_toolbar button:disabled { cursor: default; }
   #__wysiwyg_toolbar button:disabled:hover { background: #2b2b2b; }
   #__wysiwyg_toolbar .wt-label { color: #9aa0a6; padding: 0 2px; }
@@ -683,8 +701,8 @@ function buildWysiwygOverlayScript(colors) {
   [data-wysiwyg-new] { outline: 2px dashed #ee0000 !important; outline-offset: 1px; }
   #__wysiwyg_lock_scrim { position: fixed; inset: 0; z-index: 999997; cursor: not-allowed; }
   .wt-resize-handle {
-    position: fixed; z-index: 999999; width: 9px; height: 9px; background: #fff;
-    border: 2px solid #ee0000; border-radius: 2px; transform: translate(-50%, -50%);
+    position: fixed; z-index: 999999; width: 6px; height: 6px; background: #fff;
+    border: 1.5px solid #ee0000; border-radius: 2px; transform: translate(-50%, -50%);
   }
   .__wysiwyg_overflow_warn { box-shadow: 0 0 0 3px #f5921b !important; }
   .wt-overflow-label { color: #f5921b !important; }
@@ -793,6 +811,19 @@ function buildWysiwygOverlayScript(colors) {
     box.style.top = Math.max(4, Math.min(top, maxTop)) + 'px';
   }
 
+  // Popups (color/more) anchor above the toolbar by default. Near the top
+  // of the frame the toolbar itself is already clamped close to y=4, so
+  // "above the toolbar" computes to a negative top that clampBoxPosition
+  // would then clamp right back up to y=4 — landing the popup on top of
+  // the toolbar instead of beside it. Flip to below the toolbar instead of
+  // clamping into it whenever there isn't genuinely room above.
+  function positionPopupNearAnchor(popup, anchorRect) {
+    var popupRect = popup.getBoundingClientRect();
+    var top = anchorRect.top - popupRect.height - 8;
+    if (top < 4) top = anchorRect.bottom + 8;
+    clampBoxPosition(popup, anchorRect.left, top);
+  }
+
   function showToolbar(el) {
     // Switching a not-yet-submitted new box into the normal font/color
     // toolbar (e.g. the user clicked its placeholder text instead of typing
@@ -812,13 +843,17 @@ function buildWysiwygOverlayScript(colors) {
       toolbar.innerHTML = warnLabel + '<span class="wt-label">드래그로 이동</span><button data-act="more" title="배경·모서리·순서·숨김">⋯</button><button data-act="ai">AI 수정</button><button data-act="delete" title="삭제">삭제</button>';
     } else if (isTextLeaf(el)) {
       var curColor = rgbToHex(getComputedStyle(el).color);
+      var elCs = getComputedStyle(el);
+      var boldOn = parseInt(elCs.fontWeight, 10) >= 700;
+      var italicOn = elCs.fontStyle === 'italic';
+      var strikeOn = elCs.textDecorationLine.indexOf('line-through') !== -1;
       toolbar.innerHTML = warnLabel +
         '<button data-act="dec" title="글자 작게">A-</button>' +
         '<button data-act="inc" title="글자 크게">A+</button>' +
         '<button data-act="reset" title="기본 크기로">↺</button>' +
-        '<button data-act="bold" title="굵게" style="font-weight:900">B</button>' +
-        '<button data-act="italic" title="기울임" style="font-style:italic">I</button>' +
-        '<button data-act="strike" title="취소선" style="text-decoration:line-through">S</button>' +
+        '<button data-act="bold" title="굵게" class="' + (boldOn ? 'wt-active' : '') + '" style="font-weight:900">B</button>' +
+        '<button data-act="italic" title="기울임" class="' + (italicOn ? 'wt-active' : '') + '" style="font-style:italic">I</button>' +
+        '<button data-act="strike" title="취소선" class="' + (strikeOn ? 'wt-active' : '') + '" style="text-decoration:line-through">S</button>' +
         '<button data-act="color-toggle" class="wt-color-swatch" style="background:' + curColor + '" title="글자색"></button>' +
         '<button data-act="more" title="배경·모서리·순서·숨김">⋯</button>' +
         '<button data-act="ai">AI 수정</button>' +
@@ -902,10 +937,10 @@ function buildWysiwygOverlayScript(colors) {
     }).join('') + '<input type="color" class="wt-custom-color" title="사용자 지정 색상">';
     document.body.appendChild(popup);
 
-    // Anchor above the toolbar (not below it) so the popup never covers the
-    // very toolbar buttons the user might still want to use.
-    var popupRect = popup.getBoundingClientRect();
-    clampBoxPosition(popup, anchorRect.left, anchorRect.top - popupRect.height - 8);
+    // Anchors above the toolbar when there's room, below it otherwise —
+    // see positionPopupNearAnchor()'s comment for why "always above" broke
+    // near the top edge of the frame.
+    positionPopupNearAnchor(popup, anchorRect);
 
     popup.addEventListener('mousedown', function (e) { e.stopPropagation(); });
     popup.addEventListener('click', function (e) {
@@ -951,8 +986,7 @@ function buildWysiwygOverlayScript(colors) {
       '<div class="mp-row"><span class="mp-label"></span><button data-act="toggle-visible" id="mpVisBtn">숨기기</button></div>';
     document.body.appendChild(popup);
 
-    var popupRect = popup.getBoundingClientRect();
-    clampBoxPosition(popup, anchorRect.left, anchorRect.top - popupRect.height - 8);
+    positionPopupNearAnchor(popup, anchorRect);
 
     var radiusVal = popup.querySelector('#mpRadiusVal');
     var visBtn = popup.querySelector('#mpVisBtn');
@@ -1024,8 +1058,13 @@ function buildWysiwygOverlayScript(colors) {
   }
 
   function positionHandle(h, rect, dir) {
-    var midX = rect.left + rect.width / 2;
-    var midY = rect.top + rect.height / 2;
+    // left/top/right/bottom only — no width/height dependency, since the
+    // synthetic rect built during an active resize (below) only carries
+    // those four edges. Using rect.width/height here silently produced NaN
+    // for the edge-midpoint (n/s/e/w) handles during a live resize, since
+    // that synthetic object had no width/height properties at all.
+    var midX = (rect.left + rect.right) / 2;
+    var midY = (rect.top + rect.bottom) / 2;
     var x = dir.indexOf('w') !== -1 ? rect.left : (dir.indexOf('e') !== -1 ? rect.right : midX);
     var y = dir.indexOf('n') !== -1 ? rect.top : (dir.indexOf('s') !== -1 ? rect.bottom : midY);
     h.style.left = x + 'px';
@@ -1456,6 +1495,12 @@ function buildWysiwygOverlayScript(colors) {
       scrim.remove();
     }
   };
+
+  // Called from the parent frame when the user clicks anywhere outside the
+  // preview iframe — a click there never reaches this document at all
+  // (separate browsing context), so without this, any open toolbar/popup
+  // stayed on screen forever once the user's focus moved elsewhere.
+  window.__wysiwygClearSelection = function () { clearSelection(); };
 })();
 <\/script>
 `;
@@ -1615,21 +1660,6 @@ async function deleteSlide(filename, event) {
   }
 }
 
-async function addBlankSlide() {
-  if (blockIfAiEditBusy()) return;
-  if (!confirmDiscardIfDirty()) return;
-  const res = await fetch('/api/projects/' + projectName + '/slides', {method: 'POST'});
-  if (res.ok) {
-    const data = await res.json();
-    currentSlide = null;
-    await loadProject(false); // don't auto-pick slide 1 — we're selecting the new slide next
-    selectSlide(data.filename);
-    showToast('새 슬라이드를 추가했습니다.');
-  } else {
-    showToast('추가 실패', true);
-  }
-}
-
 // Shared by the ↑/↓ buttons, thumbnail drag-and-drop, and insert-at-position
 // — toIndex is the slide's desired FINAL index in the resulting order
 // (standard splice-based array-move semantics), not an index into the
@@ -1664,10 +1694,18 @@ async function moveSlide(index, direction, event) {
 
 let dragSlideIndex = null;
 
-function attachSlideDragHandlers(item, index) {
+// Attached once per DOM node (guarded below) since list items are now
+// reused across re-renders instead of being torn down and recreated every
+// time — see loadProject()'s renderSlideList(). The index a node
+// represents can still change across renders (reordering), so handlers
+// read it fresh from item.dataset.index at event time rather than closing
+// over a value that would go stale the moment two slides swap places.
+function attachSlideDragHandlers(item) {
+  if (item._dragHandlersAttached) return;
+  item._dragHandlersAttached = true;
   item.draggable = true;
   item.addEventListener('dragstart', (e) => {
-    dragSlideIndex = index;
+    dragSlideIndex = parseInt(item.dataset.index, 10);
     e.dataTransfer.effectAllowed = 'move';
     item.classList.add('dragging');
   });
@@ -1688,6 +1726,7 @@ function attachSlideDragHandlers(item, index) {
     e.preventDefault();
     const before = (e.clientY - item.getBoundingClientRect().top) < item.offsetHeight / 2;
     item.classList.remove('drag-over-top', 'drag-over-bottom');
+    const index = parseInt(item.dataset.index, 10);
     if (dragSlideIndex === null || dragSlideIndex === index) return;
     let to = before ? index : index + 1;
     if (dragSlideIndex < to) to -= 1; // account for the source slot disappearing once removed
@@ -1695,9 +1734,9 @@ function attachSlideDragHandlers(item, index) {
   });
 }
 
-function createInsertZone(atIndex) {
+function createInsertZone(atIndex, isEnd) {
   const zone = document.createElement('div');
-  zone.className = 'slide-insert-zone';
+  zone.className = 'slide-insert-zone' + (isEnd ? ' slide-insert-zone-end' : '');
   zone.title = '여기에 새 슬라이드 삽입';
   zone.innerHTML = '<span class="zone-plus">+</span>';
   zone.onclick = (e) => { e.stopPropagation(); insertBlankSlideAt(atIndex); };
@@ -2205,6 +2244,18 @@ function fitPreviewFrame() {
 }
 
 window.addEventListener('resize', fitPreviewFrame);
+
+// A click anywhere in this (outer) document only fires here at all when it
+// lands outside the preview iframe — clicks inside it are handled entirely
+// by the iframe's own document and never bubble across that boundary. So
+// any such click means "the user clicked away from the slide" — close
+// whatever WYSIWYG toolbar/popup might still be open in there.
+document.addEventListener('click', () => {
+  const frame = document.getElementById('previewFrame');
+  if (frame && frame.contentWindow && frame.contentWindow.__wysiwygClearSelection) {
+    frame.contentWindow.__wysiwygClearSelection();
+  }
+});
 
 document.getElementById('homeLink').addEventListener('click', (e) => { if (blockIfAiEditBusy() || !confirmDiscardIfDirty()) e.preventDefault(); });
 document.getElementById('dashboardLink').addEventListener('click', (e) => { if (blockIfAiEditBusy() || !confirmDiscardIfDirty()) e.preventDefault(); });
