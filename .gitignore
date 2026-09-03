@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .env
+.venv/
+logs/
 data/*.json
 node_modules/
 *.pptx
