@@ -846,8 +846,11 @@ async function extractSlideData(page) {
           borderCollapse: borderCollapse
         });
 
-        // Mark all child elements as processed
-        el.querySelectorAll('tr, th, td').forEach(child => processed.add(child));
+        // Mark all descendants as processed (not just tr/th/td) — otherwise
+        // tags like <p>/<span> nested inside a <td> are picked up again by
+        // the generic text-element extraction below and rendered as a
+        // second, overlapping textbox on top of the table.
+        el.querySelectorAll('*').forEach(child => processed.add(child));
         processed.add(el);
         return;
       }

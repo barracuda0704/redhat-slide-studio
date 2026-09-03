@@ -71,13 +71,19 @@ main.content { flex: 1; min-height: 0; display: flex; }
   background: var(--rh-red); transform: translateY(-50%); opacity: 0; transition: opacity .12s;
 }
 .slide-insert-zone .zone-plus {
-  display: none; width: 18px; height: 18px; border-radius: 50%; background: var(--rh-red);
-  color: #fff; font-size: 13px; font-weight: 700; line-height: 1; align-items: center; justify-content: center;
-  box-shadow: 0 1px 4px rgba(0,0,0,.3);
+  display: none; position: relative; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--rh-red); box-shadow: 0 1px 4px rgba(0,0,0,.3);
 }
+.slide-insert-zone .zone-plus::before,
+.slide-insert-zone .zone-plus::after {
+  content: ''; position: absolute; top: 50%; left: 50%; background: #fff; border-radius: 1px;
+  transform: translate(-50%, -50%);
+}
+.slide-insert-zone .zone-plus::before { width: 8px; height: 2px; }
+.slide-insert-zone .zone-plus::after { width: 2px; height: 8px; }
 .slide-insert-zone:hover { height: 20px; }
 .slide-insert-zone:hover::before { opacity: 1; }
-.slide-insert-zone:hover .zone-plus { display: flex; }
+.slide-insert-zone:hover .zone-plus { display: block; }
 
 .present-overlay {
   display: none; position: fixed; inset: 0; z-index: 5000; background: #000;

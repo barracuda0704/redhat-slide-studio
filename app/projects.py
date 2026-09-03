@@ -14,20 +14,41 @@ REDHAT_REL_RE = re.compile(r'(href|src)="\.\./\.\./\.\./\.\./redhat/([^"]+)"')
 ASSET_REL_RE = re.compile(r'src="assets/([^"]+)"')
 REDHAT_URL_RE = re.compile(r"url\(\s*['\"]?\.\./\.\./\.\./\.\./redhat/([^'\")]+)['\"]?\s*\)")
 ASSET_URL_RE = re.compile(r"url\(\s*['\"]?assets/([^'\")]+)['\"]?\s*\)")
-BLANK_SLIDE_TEMPLATE = """<!DOCTYPE html>
+def _blank_slide_html(deck_title: str, page_num: int, total: int) -> str:
+    """A blank slide that already follows the deck's standard anatomy
+    (eyebrow + title-wrap + footer) so it doesn't stand out as a different
+    theme once the user fills it in via AI edit."""
+    return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <link rel="stylesheet" href="../../../../redhat/theme.css">
 <style>
-body { background: #ffffff; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; word-break: keep-all; }
-h1 { color: #ee0000; font-size: 22pt; font-weight: 700; margin: 0 0 8pt 0; }
-p { color: #4d4d4d; font-size: 12pt; margin: 0; }
+body {{ display: flex; flex-direction: column; word-break: keep-all; }}
+.eyebrow {{
+  font-size: 11pt; font-weight: 500; letter-spacing: 0.08em; color: #ee0000;
+  text-transform: uppercase; margin: 0 0 6pt 0;
+}}
+.title-wrap {{ border-left: 3pt solid #ee0000; padding-left: 10pt; margin-bottom: 14pt; }}
+.title-wrap h2 {{ font-size: 20pt; font-weight: 700; line-height: 1.3; color: #151515; margin: 0; }}
+.placeholder {{ color: #4d4d4d; font-size: 12pt; margin: 0; }}
+.footer {{
+  margin-top: auto; display: flex; justify-content: space-between;
+  border-top: 0.5pt solid #e0e0e0; padding-top: 6pt;
+}}
+.footer p {{ font-size: 10pt; color: #4d4d4d; margin: 0; }}
 </style>
 </head>
 <body>
-<h1>새 슬라이드</h1>
-<p>여기에 내용을 입력하세요.</p>
+<div class="header-area">
+  <p class="eyebrow">새 슬라이드</p>
+  <div class="title-wrap"><h2>제목을 입력하세요</h2></div>
+</div>
+<p class="placeholder">여기에 내용을 입력하세요.</p>
+<footer class="footer">
+  <p>{deck_title}</p>
+  <p>{page_num} / {total}</p>
+</footer>
 </body>
 </html>
 """
@@ -325,8 +346,10 @@ class ProjectManager:
             nums = [int(m.group(1)) for f in html_dir.glob("slide*.html") if (m := re.match(r'slide(\d+)', f.name))]
             next_num = (max(nums) + 1) if nums else 1
             filename = f"slide{next_num:02d}-new.html"
-            (html_dir / filename).write_text(BLANK_SLIDE_TEMPLATE, "utf-8")
             meta = self._load_meta(name, version)
+            deck_title = meta.get("title", name) if meta else name
+            total = len(list(html_dir.glob("slide*.html"))) + 1
+            (html_dir / filename).write_text(_blank_slide_html(deck_title, next_num, total), "utf-8")
             if meta:
                 meta["updated"] = self._now_iso()
                 meta["slides"] = len(list(html_dir.glob("slide*.html")))
