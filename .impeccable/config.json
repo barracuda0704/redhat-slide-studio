@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "web/project.html"
+        ],
+        "createdAt": "2026-09-03T13:16:58.939Z",
+        "reason": "Dynamically-built <img src> from JS template strings (asset upload/logo insertion) - never ships empty/missing src, confirmed by user 2026-09-03"
+      }
+    ]
+  }
+}
