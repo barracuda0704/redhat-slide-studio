@@ -462,6 +462,23 @@ class ProjectManager:
         if path.exists():
             path.unlink()
 
+    def _link_assets_for_build(self, name: str, version: str) -> None:
+        """Slides reference project assets as `src="assets/xxx.png"` — a
+        virtual path the web server rewrites to an API URL for browser
+        preview, never a real filesystem-relative path. But html2pptx.js
+        opens each slide directly via a file:// URL from inside html/, so
+        that same "assets/xxx.png" resolves on disk to html/assets/xxx.png
+        instead of the real ../assets/xxx.png — which doesn't exist, so
+        pptxgenjs silently drops the image with no build error at all.
+        A symlink makes the virtual path resolve correctly for real."""
+        html_dir = self._version_dir(name, version) / "html"
+        assets_dir = self._version_dir(name, version) / "assets"
+        link = html_dir / "assets"
+        if not assets_dir.exists() or link.exists():
+            return
+        html_dir.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(assets_dir, target_is_directory=True)
+
     def build_pptx(self, name: str, version: str = "v1.0") -> str:
         _validate_name(name)
         _validate_version(version)
@@ -471,6 +488,7 @@ class ProjectManager:
                 meta["status"] = "building"
                 self._save_meta(name, meta, version)
         try:
+            self._link_assets_for_build(name, version)
             result = subprocess.run(
                 ["node", str(self.engine_dir / "scripts" / "build.js"), name, version],
                 cwd=str(self.engine_dir),
