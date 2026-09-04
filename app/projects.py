@@ -489,10 +489,18 @@ class ProjectManager:
                 self._save_meta(name, meta, version)
         try:
             self._link_assets_for_build(name, version)
+            # Fixed at 120s regardless of deck size used to silently make
+            # every large deck's build "fail" with a timeout — observed
+            # directly: a real 47-slide deck took 7m53s. Each slide needs
+            # its own Playwright page load, so this scales with slide count
+            # instead of a single constant that only ever worked for small
+            # decks.
+            num_slides = len(list((self._version_dir(name, version) / "html").glob("slide*.html")))
+            build_timeout = max(120, num_slides * 15 + 60)
             result = subprocess.run(
                 ["node", str(self.engine_dir / "scripts" / "build.js"), name, version],
                 cwd=str(self.engine_dir),
-                capture_output=True, text=True, timeout=120
+                capture_output=True, text=True, timeout=build_timeout
             )
             output = f"{result.stdout or ''}\n{result.stderr or ''}"
             pptx_path = self._version_dir(name, version) / "slides.pptx"
@@ -553,7 +561,7 @@ class ProjectManager:
             if meta:
                 meta["status"] = "failed"
                 self._save_meta(name, meta, version)
-            raise RuntimeError("빌드 타임아웃 (120초)")
+            raise RuntimeError(f"빌드 타임아웃 ({build_timeout}초)")
 
     def get_pptx_path(self, name: str, version: str = "v1.0") -> str | None:
         p = self._version_dir(name, version) / "slides.pptx"

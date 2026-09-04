@@ -350,17 +350,25 @@ def _run_post_generation_qa(name: str, theme: str, max_rounds: int = 3) -> str |
             fixed_filenames.append(filename)
         filenames_to_check = fixed_filenames
 
-    # Loop exhausted max_rounds still with issues (or broke out early) —
-    # rebuild once more so slides.pptx reflects the last round's fixes.
+    # Loop exhausted max_rounds still with issues (or broke out early, e.g.
+    # a timeout on a large deck) — rebuild once more and check its ACTUAL
+    # result, rather than trusting remaining_issues from the loop above.
+    # That loop-local state goes stale the moment a round breaks early
+    # (build_pptx() timing out on a big deck was silently exiting the loop
+    # with remaining_issues still {} from initialization, so this used to
+    # report "clean" while the real, just-built PPTX was missing slides).
     try:
         project_manager.build_pptx(name)
     except RuntimeError:
-        pass
-    if not remaining_issues:
+        return "자동 품질 검토 중 최종 PPTX 빌드 자체가 실패했습니다. '빌드' 버튼으로 직접 다시 시도해주세요."
+    meta = project_manager._load_meta(name)
+    final_structural = {f["filename"] for f in ((meta or {}).get("build_failures") or [])}
+    still_broken = final_structural | set(remaining_issues.keys())
+    if not still_broken:
         return None
     return (
-        f"자동 품질 검토를 {max_rounds}회 시도했지만 다음 슬라이드에 문제가 남아있습니다: "
-        + ", ".join(remaining_issues.keys()) + ". AI 수정 기능으로 직접 확인해주세요."
+        f"자동 품질 검토를 시도했지만 다음 슬라이드에 문제가 남아있습니다: "
+        + ", ".join(sorted(still_broken)) + ". AI 수정 기능으로 직접 확인해주세요."
     )
 
 
