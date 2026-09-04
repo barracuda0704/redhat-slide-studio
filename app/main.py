@@ -140,6 +140,13 @@ async def api_register(email: str = Form(...), password: str = Form(...)):
 
 @app.post("/api/login")
 async def api_login(response: Response, email: str = Form(...), password: str = Form(...)):
+    if settings.LOGIN_DISABLED:
+        # This endpoint used to accept real credentials regardless of
+        # LOGIN_DISABLED — get_current_user() bypasses auth entirely in this
+        # mode, but /api/login itself stayed live, so a real admin password
+        # still worked here even in a deployment meant to have no login at
+        # all. Closing it off entirely rather than just hiding the login UI.
+        raise HTTPException(403, "로그인이 비활성화된 배포입니다.")
     user, error = user_manager.authenticate(email, password)
     if not user:
         raise HTTPException(401, error)
