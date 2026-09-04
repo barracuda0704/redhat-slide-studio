@@ -168,14 +168,19 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .toolbar.nav-locked, .viewer-toolbar.nav-locked, .ai-edit-bar.nav-locked, .html-accordion.nav-locked {
   opacity: .55; filter: blur(1.5px); pointer-events: none;
 }
-/* Only the slide content blurs — a filter on .preview-container itself
-   would blur the "AI 반영중" overlay sitting on top of it too. */
+/* The blur itself lives on the overlay (backdrop-filter), not on the
+   iframe/previewEmpty directly — filtering the iframe element inside an
+   overflow:hidden container clips the blur's spillover pixels right at its
+   edge, which shows up as a visible dark seam around the frame. A
+   backdrop-filter on the overlay blurs whatever's behind IT instead,
+   giving the same look without touching the iframe's own rendering. */
 .preview-container.nav-locked #previewFrame, .preview-container.nav-locked #previewEmpty {
-  opacity: .55; filter: blur(1.5px); pointer-events: none;
+  opacity: .55; pointer-events: none;
 }
 .ai-processing-overlay {
   display: none; position: absolute; inset: 0; z-index: 20;
   flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(255,255,255,.35); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
 }
 .preview-container.nav-locked .ai-processing-overlay { display: flex; }
 .ai-processing-spinner {
@@ -1948,10 +1953,6 @@ function closeImageGenModal() {
   toggleImageGenMode();
 }
 
-document.getElementById('imageGenPromptInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitImageGen(); }
-});
-
 async function submitImageGen() {
   const prompt = document.getElementById('imageGenPromptInput').value.trim();
   if (!prompt || !igPendingRegion || !currentSlide || aiEditInProgress) return;
@@ -1960,6 +1961,14 @@ async function submitImageGen() {
   document.getElementById('imageGenModal').style.display = 'none';
   const box = document.getElementById('imageGenRubber');
   if (box) { box.classList.add('loading'); box.innerHTML = '<span>이미지 생성중...</span>'; }
+  // Turn region-select mode off now, not after the request resolves — the
+  // modal closing here re-exposes previewContainer to mouse events, and
+  // leaving imageGenModeOn true for the whole request let a second drag
+  // start (and reopen the modal) while the first generation was still
+  // running, since nothing else disables previewContainer's own listener.
+  imageGenModeOn = false;
+  document.getElementById('imageGenBtn').classList.remove('active');
+  document.getElementById('previewContainer').classList.remove('imagegen-mode');
 
   aiEditInProgress = true;
   setNavigationLocked(true);
@@ -1989,9 +1998,6 @@ async function submitImageGen() {
   document.querySelector('.ai-processing-text').textContent = 'AI 반영중';
   igPendingRegion = null;
   removeImageGenRubber();
-  imageGenModeOn = false;
-  document.getElementById('imageGenBtn').classList.remove('active');
-  document.getElementById('previewContainer').classList.remove('imagegen-mode');
 }
 
 // On success renderPreview() reloads the iframe, which wipes the WYSIWYG
