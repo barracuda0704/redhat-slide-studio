@@ -356,12 +356,18 @@ main.content { flex: 1; min-height: 0; display: flex; }
 
         <!-- Raw HTML editing is intentionally not exposed in the UI anymore
              — everything goes through the WYSIWYG tools (drag/resize,
-             inline text edit, AI edit, image gen) instead. This textarea
-             stays in the DOM (hidden) because the CodeMirror instance
-             attached to it is still the app's in-memory model of the
-             current slide's HTML — syncBack()/saveSlideHtml()/
-             revertUnsavedChanges()/AI-edit all read and write through it. -->
-        <textarea id="htmlEditor" spellcheck="false" style="display:none"></textarea>
+             inline text edit, AI edit, image gen) instead. The textarea
+             stays in the DOM because the CodeMirror instance attached to
+             it is still the app's in-memory model of the current slide's
+             HTML — syncBack()/saveSlideHtml()/revertUnsavedChanges()/
+             AI-edit all read and write through it. CodeMirror.fromTextArea
+             replaces the textarea with its own sibling .CodeMirror div, so
+             `display:none` on the textarea alone does NOT hide the visible
+             editor UI it generates — the wrapping div below is what
+             actually hides it. -->
+        <div style="display:none">
+          <textarea id="htmlEditor" spellcheck="false"></textarea>
+        </div>
       </div>
 
     </div>

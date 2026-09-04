@@ -503,11 +503,21 @@ class ProjectManager:
                 meta["status"] = "completed"
                 meta["updated"] = self._now_iso()
                 if error_count:
+                    # build.js prints "   (N/total) <filename> ✗ <error message>"
+                    # per failed slide (message may itself span multiple lines
+                    # for "Multiple validation errors found: ..."). Surface the
+                    # actual filename + reason instead of a generic guess —
+                    # a count-only message forces the user to hunt for which
+                    # slide broke and why by trial and error.
+                    failures = re.findall(
+                        r"\(\d+/\d+\)\s+(\S+)\s+✗\s+(.*?)(?=\n\s*\(\d+/\d+\)|\n─|\n✅|\Z)",
+                        output, re.DOTALL,
+                    )
+                    detail = "\n".join(f"- {fname}: {reason.strip()[:300]}" for fname, reason in failures)
                     meta["build_warning"] = (
                         f"{error_count}개 슬라이드가 PPTX 변환에 실패해 누락되었습니다 "
-                        f"(성공 {success_count} / 실패 {error_count}). 슬라이드 하단에 빨간 테두리로 "
-                        f"넘침(overflow) 경고가 표시된 텍스트가 있는지, 또는 텍스트가 도형·이미지로 "
-                        f"가려진 곳이 있는지 확인 후 AI 수정 기능으로 고쳐보세요."
+                        f"(성공 {success_count} / 실패 {error_count}).\n"
+                        f"{detail if detail else '실패 슬라이드를 특정하지 못했습니다.'}"
                     )
                 else:
                     meta.pop("build_warning", None)
