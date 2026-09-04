@@ -840,6 +840,7 @@ input.jobs-search {
   color: var(--warning);
   font-size: 13px;
   margin: 16px 0;
+  white-space: pre-line;
 }
 
 .result-actions {

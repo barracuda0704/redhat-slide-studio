@@ -438,23 +438,33 @@ def apply_edit_instruction(html: str, instruction: str, target_html: str | None 
     return m.group(1).strip() if m else text.strip()
 
 
-def _consistency_system(theme_css: str) -> str:
-    return f"""당신은 Red Hat 슬라이드 디자인 감수자입니다. 아래 "비교 대상 슬라이드"들과
-비교했을 때, "검토할 슬라이드"가 같은 덱의 일부라고 느껴지지 않을 정도로 톤앤매너(색상
-사용, 타이포그래피 크기/굵기 위계, 여백·레이아웃 패턴, 아이콘/이미지 스타일, 어투)가
-어긋나는지 판단합니다.
-
+def _consistency_system(theme_css: str, theme_guide: str = "") -> str:
+    guide_block = f"""
+## 테마 가이드 문서 (최우선 기준)
+아래 문서가 이 덱이 따라야 할 테마의 공식 규정입니다 (색상, 타이포그래피, 레이아웃, 컴포넌트
+패턴, Do/Don't). "비교 대상 슬라이드"보다 이 문서를 우선하세요 — 비교 대상 슬라이드가 여러
+장 있어도 이 문서와 어긋나면 비교 대상 쪽이 잘못된 것일 수 있습니다.
+```markdown
+{theme_guide}
+```
+""" if theme_guide else ""
+    return f"""당신은 Red Hat 슬라이드 디자인 감수자입니다. "검토할 슬라이드"가 같은 덱의
+일부라고 느껴지지 않을 정도로 톤앤매너(색상 사용, 타이포그래피 크기/굵기 위계, 여백·레이아웃
+패턴, 아이콘/이미지 스타일, 어투)가 어긋나는지 판단합니다.
+{guide_block}
 ## 규칙
-- 비교 대상 슬라이드가 여러 장이면, 그중 다수가 공유하는 스타일을 그 덱의 기준(theme.css를
-  따르는 표준)으로 보세요. "검토할 슬라이드"가 그 다수 기준과 다르면 어긋난 것이고, 반대로
-  비교 대상 쪽이 소수/특이 사례이고 "검토할 슬라이드"가 오히려 theme.css 표준에 더 가깝다면
+- 테마 가이드 문서가 주어졌다면 그 문서의 규정(색상 토큰, 타입 스케일, 여백, Do/Don't)을
+  최우선 기준으로 삼으세요. 문서가 없고 비교 대상 슬라이드만 있다면, 그중 다수가 공유하는
+  스타일을 덱의 기준으로 보세요. "검토할 슬라이드"가 그 다수 기준과 다르면 어긋난 것이고,
+  반대로 비교 대상 쪽이 소수/특이 사례이고 "검토할 슬라이드"가 오히려 표준에 더 가깝다면
   어긋나지 않은 것입니다 — 단순히 서로 다르다는 이유만으로 "검토할 슬라이드"를 고치지 마세요.
 - 내용(사실관계·문구)은 절대 바꾸지 마세요. 오직 시각적 톤앤매너·구조적 관례만 봅니다.
 - 사소한 차이(슬라이드마다 당연히 다를 수 있는 레이아웃, 예: 표 vs 카드형 등 콘텐츠 특성상
   불가피한 차이)는 어긋남으로 보지 마세요. 명백히 이질적인 경우만 표시하세요.
-- 어긋난다고 판단되면, 다수 기준에 맞춰 스타일만 고친 완성된 HTML을 주세요 (구조·클래스명은
+- 어긋난다고 판단되면, 기준에 맞춰 스타일만 고친 완성된 HTML을 주세요 (구조·클래스명은
   최대한 유지, 내용은 그대로).
-- word-break: keep-all (한글 텍스트) 유지.
+- 한국어 본문의 word-break: keep-all, line-height 1.4 이상 등 테마 가이드에 명시된 타이포
+  규칙도 위반 여부를 확인하세요.
 
 ## PPTX 변환 필수 규칙 (수정본에도 반드시 지켜야 함)
 1. 모든 글자는 반드시 `<p>`, `<h1>~<h6>`, `<ul>`, `<ol>` 태그 안에만 있어야 합니다.
@@ -475,8 +485,9 @@ def _consistency_system(theme_css: str) -> str:
 """
 
 
-def review_slide_consistency(slide_html: str, sibling_htmls: list[str]) -> dict:
+def review_slide_consistency(slide_html: str, sibling_htmls: list[str], theme_id: str | None = None) -> dict:
     theme_css = _load_theme_css(settings.ENGINE_DIR)
+    theme_guide = _load_theme_guide(settings.ENGINE_DIR, theme_id) if theme_id else ""
     client = _get_client()
     siblings_block = "\n\n".join(
         f"### 비교 대상 슬라이드 {i + 1}\n```html\n{h}\n```" for i, h in enumerate(sibling_htmls)
@@ -488,7 +499,7 @@ def review_slide_consistency(slide_html: str, sibling_htmls: list[str]) -> dict:
     response = _create_message(client,
         model=settings.MODEL_NAME,
         max_tokens=settings.MAX_OUTPUT_TOKENS,
-        system=_consistency_system(theme_css),
+        system=_consistency_system(theme_css, theme_guide),
         messages=[{"role": "user", "content": user_msg}],
     )
     text = response.content[0].text

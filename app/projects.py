@@ -531,7 +531,14 @@ class ProjectManager:
                         r"\(\d+/\d+\)\s+(\S+)\s+✗\s+(.*?)(?=\n\s*\(\d+/\d+\)|\n─|\n✅|\Z)",
                         output, re.DOTALL,
                     )
-                    detail = "\n".join(f"- {fname}: {reason.strip()[:300]}" for fname, reason in failures)
+                    # Structured form (filename -> reason) alongside the
+                    # human-readable string, so callers like the post-
+                    # generation QA pass can act on failures programmatically
+                    # instead of re-parsing the display text.
+                    meta["build_failures"] = [
+                        {"filename": fname, "reason": reason.strip()[:300]} for fname, reason in failures
+                    ]
+                    detail = "\n".join(f"- {f['filename']}: {f['reason']}" for f in meta["build_failures"])
                     meta["build_warning"] = (
                         f"{error_count}개 슬라이드가 PPTX 변환에 실패해 누락되었습니다 "
                         f"(성공 {success_count} / 실패 {error_count}).\n"
@@ -539,6 +546,7 @@ class ProjectManager:
                     )
                 else:
                     meta.pop("build_warning", None)
+                    meta.pop("build_failures", None)
                 self._save_meta(name, meta, version)
             return str(pptx_path)
         except subprocess.TimeoutExpired:

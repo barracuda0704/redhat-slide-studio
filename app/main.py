@@ -283,6 +283,80 @@ class GenerateRequest(BaseModel):
     content_md: str | None = None  # skip AI outline generation, use this markdown as-is
 
 
+def _run_post_generation_qa(name: str, theme: str, max_rounds: int = 3) -> str | None:
+    """Runs right after generation, before the deck is marked 'completed':
+    rebuilds to catch PPTX-conversion-breaking structural issues (overflow,
+    unwrapped text, etc. — reuses build_pptx()'s own per-slide failure
+    detail) and reviews each slide against the theme's actual guide document
+    for brand/typography drift, auto-fixing flagged slides through the same
+    AI-edit pipeline the UI's "AI 수정" button uses. Capped at max_rounds
+    (mirrors the reference skill bundle's own 3-attempt auto-fix limit) so a
+    stubborn slide can't loop forever. Returns a warning string describing
+    anything still unresolved, or None if the deck came out clean."""
+    from . import generator
+    filenames_to_check: list[str] | None = None
+    remaining_issues: dict[str, str] = {}
+    for _round in range(max_rounds):
+        try:
+            project_manager.build_pptx(name)
+        except RuntimeError:
+            break  # unbuildable in a way per-slide auto-fix can't generically address
+        meta = project_manager._load_meta(name)
+        structural = {f["filename"]: f["reason"] for f in ((meta or {}).get("build_failures") or [])}
+
+        check_list = filenames_to_check if filenames_to_check is not None else project_manager.list_slides(name)
+        brand_results: dict[str, dict] = {}
+        for filename in check_list:
+            try:
+                html = project_manager.get_slide_html(name, filename)
+                result = generator.review_slide_consistency(html, [], theme_id=theme)
+            except Exception:
+                continue  # one slide's review failing shouldn't block the whole QA pass
+            if not result["matches"]:
+                brand_results[filename] = result
+
+        remaining_issues = dict(structural)
+        for filename, result in brand_results.items():
+            remaining_issues[filename] = (remaining_issues.get(filename, "") + " " + result["reason"]).strip()
+
+        if not remaining_issues:
+            return None  # clean — the build_pptx() call above already reflects this
+
+        fixed_filenames = []
+        for filename, issue in remaining_issues.items():
+            try:
+                html = project_manager.get_slide_html(name, filename)
+            except ValueError:
+                continue
+            # Prefer the brand review's own fixed_html only when that's the
+            # sole problem — it doesn't know the specific structural defect
+            # (e.g. "overflows by 0.8pt"), so a slide with both issues goes
+            # through apply_edit_instruction with the concrete description
+            # instead of a fix aimed only at the style drift.
+            fixed_html = None if filename in structural else brand_results.get(filename, {}).get("fixed_html")
+            if not fixed_html:
+                try:
+                    fixed_html = generator.apply_edit_instruction(html, f"다음 문제를 해결하세요: {issue}")
+                except Exception:
+                    continue
+            project_manager.save_slide_html(name, filename, fixed_html)
+            fixed_filenames.append(filename)
+        filenames_to_check = fixed_filenames
+
+    # Loop exhausted max_rounds still with issues (or broke out early) —
+    # rebuild once more so slides.pptx reflects the last round's fixes.
+    try:
+        project_manager.build_pptx(name)
+    except RuntimeError:
+        pass
+    if not remaining_issues:
+        return None
+    return (
+        f"자동 품질 검토를 {max_rounds}회 시도했지만 다음 슬라이드에 문제가 남아있습니다: "
+        + ", ".join(remaining_issues.keys()) + ". AI 수정 기능으로 직접 확인해주세요."
+    )
+
+
 def _run_generation(name: str, topic: str, description: str, num_slides: int, theme: str, content_md: str | None = None):
     from . import generator
     meta = project_manager._load_meta(name)
@@ -308,15 +382,27 @@ def _run_generation(name: str, topic: str, description: str, num_slides: int, th
                 meta["slides"] = total_saved
                 project_manager._save_meta(name, meta)
 
+        warnings = []
+        if any_truncated:
+            warnings.append(
+                f"AI 응답이 출력 길이 제한에 걸려 요청한 {num_slides}장 중 {total_saved}장만 "
+                f"생성되었습니다. 슬라이드 수를 줄여 다시 생성하거나, 나머지는 직접 추가하세요."
+            )
+
+        # Auto QA/fix pass — status stays "generating" through this so the
+        # frontend keeps polling instead of showing the deck as done while
+        # slides are still being rewritten underneath the user.
+        if total_saved > 0:
+            qa_warning = _run_post_generation_qa(name, theme)
+            if qa_warning:
+                warnings.append(qa_warning)
+
         meta = project_manager._load_meta(name)
         if meta:
             meta["status"] = "completed"
             meta["slides"] = total_saved
-            if any_truncated:
-                meta["generation_warning"] = (
-                    f"AI 응답이 출력 길이 제한에 걸려 요청한 {num_slides}장 중 {total_saved}장만 "
-                    f"생성되었습니다. 슬라이드 수를 줄여 다시 생성하거나, 나머지는 직접 추가하세요."
-                )
+            if warnings:
+                meta["generation_warning"] = "\n\n".join(warnings)
             else:
                 meta.pop("generation_warning", None)
             project_manager._save_meta(name, meta)
