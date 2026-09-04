@@ -2035,6 +2035,11 @@ async function runThemeReview() {
   document.getElementById('themeReviewList').innerHTML = '';
   document.getElementById('themeReviewFooter').style.display = 'none';
   aiEditInProgress = true;
+  setNavigationLocked(true);
+  document.querySelector('.ai-processing-text').textContent = '테마 일관성 검토 중';
+  // try/finally, not try/catch — an early return on API failure previously
+  // skipped resetting aiEditInProgress, leaving navigation locked forever
+  // until the page was reloaded.
   try {
     const res = await fetch('/api/projects/' + projectName + '/review-consistency', { method: 'POST' });
     const data = await res.json();
@@ -2044,8 +2049,11 @@ async function runThemeReview() {
   } catch (e) {
     showToast('테마 검토 오류: ' + e.message, true);
     closeThemeReviewModal();
+  } finally {
+    aiEditInProgress = false;
+    setNavigationLocked(false);
+    document.querySelector('.ai-processing-text').textContent = 'AI 반영중';
   }
-  aiEditInProgress = false;
 }
 
 function renderThemeReviewResults() {
@@ -2362,10 +2370,19 @@ async function saveSlideHtml() {
 }
 
 async function buildPptx() {
+  // build.js reads every slide's HTML off disk at the moment it runs — a
+  // slide save, another build, or a theme-fix apply landing mid-build could
+  // race with that read (or clobber the very slides.pptx being written).
+  // Lock navigation the same way AI-edit/image-gen do so nothing else can
+  // touch project state while a build is in flight.
+  if (blockIfAiEditBusy()) return;
   const btn = document.getElementById('buildBtn');
   btn.disabled = true;
   btn.textContent = '빌드 중...';
   updateStatusBadge('building');
+  aiEditInProgress = true;
+  setNavigationLocked(true);
+  document.querySelector('.ai-processing-text').textContent = 'PPTX 빌드 중';
 
   try {
     const res = await fetch('/api/projects/' + projectName + '/build', {method:'POST'});
@@ -2383,6 +2400,9 @@ async function buildPptx() {
     showToast('빌드 오류: ' + e.message, true);
     updateStatusBadge('failed');
   }
+  aiEditInProgress = false;
+  setNavigationLocked(false);
+  document.querySelector('.ai-processing-text').textContent = 'AI 반영중';
   btn.disabled = false;
   btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M4 4h16v16H4z"/><path d="M9 9h6v6H9z"/></svg> PPTX 빌드';
 }
