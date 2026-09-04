@@ -15,7 +15,12 @@ class Settings(BaseSettings):
     VERTEX_PROJECT_ID: str = ""
     VERTEX_REGION: str = "us-east5"
     ANTHROPIC_API_KEY: str = ""
-    MODEL_NAME: str = "claude-opus-4-6"
+    MODEL_NAME: str = "claude-sonnet-5"
+    # claude-sonnet-5 shares a per-minute Vertex quota with redhat-rfp-analyzer
+    # on this same GCP project — observed 429s from that contention during
+    # testing, even after 3 retries with backoff. Falls back to a model on a
+    # separate quota pool rather than failing the whole generation outright.
+    FALLBACK_MODEL_NAME: str = "claude-opus-4-6"
     MAX_OUTPUT_TOKENS: int = 32000
 
     # Image generation shells out to the locally-installed `cursor-agent` CLI

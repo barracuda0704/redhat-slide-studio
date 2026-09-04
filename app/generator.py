@@ -23,13 +23,41 @@ def _get_client():
         return Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 
+# claude-sonnet-5 shares a per-minute Vertex quota with redhat-rfp-analyzer
+# (same GCP project) — a 429 here during a busy moment on that side is a
+# real, observed occurrence, not a hypothetical. Same retry shape as
+# rfp-analyzer's analyzer.py: 3 attempts, 10s/20s/30s backoff.
+def _retryable_anthropic_errors():
+    import httpx
+    from anthropic import APIConnectionError, APITimeoutError, InternalServerError, OverloadedError, RateLimitError
+    return (
+        RateLimitError, APIConnectionError, APITimeoutError, InternalServerError, OverloadedError,
+        httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError,
+    )
+
+
 def _create_message(client, **kwargs):
     # The SDK requires streaming once max_tokens is high enough that a
     # response could plausibly take >10 minutes — true for our
     # MAX_OUTPUT_TOKENS. Stream and collect the final message so callers
     # keep using response.content[0].text / response.stop_reason as before.
-    with client.messages.stream(**kwargs) as stream:
-        return stream.get_final_message()
+    retryable = _retryable_anthropic_errors()
+    models_to_try = [kwargs["model"]]
+    if settings.FALLBACK_MODEL_NAME and settings.FALLBACK_MODEL_NAME != kwargs["model"]:
+        models_to_try.append(settings.FALLBACK_MODEL_NAME)
+
+    last_error = None
+    for model in models_to_try:
+        call_kwargs = {**kwargs, "model": model}
+        for attempt in range(3):
+            try:
+                with client.messages.stream(**call_kwargs) as stream:
+                    return stream.get_final_message()
+            except retryable as e:
+                last_error = e
+                if attempt < 2:
+                    time.sleep(10 * (attempt + 1))
+    raise last_error
 
 
 def _is_retriable(detail: str) -> bool:
@@ -132,6 +160,15 @@ def _content_system(current_date: str) -> str:
 오늘 날짜는 {current_date}입니다. "현재", "올해", "최신 동향" 등은 이 날짜 기준으로 작성하세요.
 사용자가 주제/설명에서 특정 연도를 명시했다면 반드시 그 연도를 그대로 사용하세요.
 통계나 사례를 인용할 때 원 자료에 실제로 명시된 연도(예: "2024년 보고서")는 바꾸지 말고 그대로 유지하세요.
+
+버전 번호, 출시일, EOL/지원 종료일, 최신 통계처럼 시간이 지나면 바뀌거나 학습 시점 이후에
+바뀌었을 수 있는 사실은 web_search 도구로 확인한 뒤 반영하세요. 일반적인 개념 설명처럼 검색이
+필요 없는 내용까지 검색하지는 마세요. 검색으로도 확인이 안 되는 구체적 통계·사례는 지어내지
+말고, 아는 대로 작성하되 문장 끝에 "(확인 필요)"를 표시하세요.
+
+검색이 필요하면 검색부터 모두 마친 뒤에 결과를 작성하세요. "먼저 검색하겠습니다", "검색
+결과를 바탕으로 작성하겠습니다" 같은 진행 상황 설명은 절대 출력하지 말고, 아래 출력 형식에
+해당하는 content.md 본문만 바로 출력하세요.
 
 작성 규칙:
 - 한국어로 작성
@@ -253,13 +290,29 @@ def generate_content(topic: str, num_slides: int = 8, description: str = "") -> 
         max_tokens=settings.MAX_OUTPUT_TOKENS,
         system=_content_system(_today_kr()),
         messages=[{"role": "user", "content": user_msg}],
+        # Web search only — web_fetch/code_execution aren't available through
+        # Vertex (AnthropicVertex), only the pre-dynamic-filtering
+        # web_search_20250305 is. max_uses caps searches per generation so a
+        # broad topic can't spiral into dozens of round-trips.
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
     )
     if response.stop_reason == "max_tokens":
         raise RuntimeError(
             f"content.md 생성이 출력 길이 제한({settings.MAX_OUTPUT_TOKENS} 토큰)에 걸려 중간에 잘렸습니다. "
             f"슬라이드 수를 줄이거나 다시 시도하세요."
         )
-    return response.content[0].text
+    # With web_search enabled, content is no longer necessarily one text
+    # block — Claude can interleave server_tool_use/web_search_tool_result
+    # blocks with several text blocks (pre-search reasoning, then the final
+    # answer). content[0] alone may be empty or a partial thought instead of
+    # the finished content.md.
+    text = "".join(block.text for block in response.content if block.type == "text")
+    # The system prompt tells it not to narrate ("먼저 검색하겠습니다..."), but
+    # that's not guaranteed — strip anything before the first real heading as
+    # a deterministic backstop, since a leaked preamble would otherwise land
+    # in content.md and confuse the title/bullet-extraction regexes downstream.
+    m = re.search(r'^#{1,2}\s', text, re.MULTILINE)
+    return text[m.start():].strip() if m else text.strip()
 
 
 def _split_content_by_slide(content_md: str) -> tuple[str, list[str]]:
