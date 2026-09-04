@@ -240,12 +240,6 @@ class ProjectManager:
         shutil.rmtree(project_dir)
         return True
 
-    def get_content(self, name: str, version: str = "v1.0") -> str:
-        p = self._version_dir(name, version) / "content.md"
-        if not p.exists():
-            raise ValueError(f"content.md를 찾을 수 없습니다.")
-        return p.read_text("utf-8")
-
     def save_content(self, name: str, content: str, version: str = "v1.0"):
         with self._lock_for(name):
             p = self._version_dir(name, version) / "content.md"

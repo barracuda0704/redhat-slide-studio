@@ -272,28 +272,6 @@ async def api_delete_project(name: str, user: User = Depends(get_current_user)):
     return {"status": "deleted"}
 
 
-# ── Content API ──
-
-@app.get("/api/projects/{name}/content")
-async def api_get_content(name: str, _: User = Depends(get_current_user)):
-    try:
-        return {"content": project_manager.get_content(name)}
-    except ValueError as e:
-        raise HTTPException(404, str(e))
-
-
-class ContentUpdate(BaseModel):
-    content: str
-
-
-@app.put("/api/projects/{name}/content")
-async def api_save_content(name: str, body: ContentUpdate, _: User = Depends(get_current_user)):
-    try:
-        project_manager.save_content(name, body.content)
-    except ValueError as e:
-        raise HTTPException(404, str(e))
-    return {"status": "saved"}
-
 
 # ── Generate API (AI) ──
 

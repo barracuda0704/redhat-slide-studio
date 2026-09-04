@@ -21,12 +21,12 @@
 html, body { height: 100%; }
 body { display: flex; flex-direction: column; overflow: hidden; }
 .masthead { flex-shrink: 0; }
-.masthead.nav-locked { opacity: .55; filter: blur(1.5px); pointer-events: none; }
+.masthead.nav-locked { opacity: .55; pointer-events: none; }
 main.content { flex: 1; min-height: 0; display: flex; }
 
 .project-layout { flex: 1; min-height: 0; width: 100%; display: grid; grid-template-columns: 240px 1fr; gap: 0; background: var(--surface-card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .slide-sidebar { height: 100%; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
-.slide-sidebar.nav-locked { opacity: .55; filter: blur(1.5px); pointer-events: none; }
+.slide-sidebar.nav-locked { opacity: .55; pointer-events: none; }
 .slide-list-item {
   display: flex; flex-direction: column; gap: 6px; padding: 8px 16px; cursor: pointer;
   color: var(--text-muted); font-size: 13px; transition: background 0.15s;
@@ -166,7 +166,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; flex-wrap: wrap;
 }
 .toolbar.nav-locked, .viewer-toolbar.nav-locked, .ai-edit-bar.nav-locked, .html-accordion.nav-locked {
-  opacity: .55; filter: blur(1.5px); pointer-events: none;
+  opacity: .55; pointer-events: none;
 }
 /* The blur itself lives on the overlay (backdrop-filter), not on the
    iframe/previewEmpty directly — filtering the iframe element inside an
@@ -201,15 +201,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
 .status-completed { background: var(--success-bg); color: var(--success); }
 .status-building { background: var(--rh-red-tint); color: var(--rh-red-dark); }
 .status-failed { background: var(--danger-bg); color: var(--danger); }
-
-.tab-bar { flex-shrink: 0; display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
-.tab-bar.nav-locked { opacity: .55; filter: blur(1.5px); pointer-events: none; }
-.tab-btn {
-  padding: 8px 18px; cursor: pointer; color: var(--text-muted); font-size: 13px;
-  border-bottom: 2px solid transparent; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none;
-}
-.tab-btn:hover { color: var(--text); }
-.tab-btn.active { color: var(--rh-red); border-bottom-color: var(--rh-red); }
 
 #slideTab { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 .preview-container {
@@ -294,14 +285,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
 }
 .ai-edit-bar .btn { font-size: 12.5px; padding: 7px 14px; flex-shrink: 0; }
 
-.content-editor { flex: 1; min-height: 0; display: none; flex-direction: column; }
-.content-editor textarea {
-  flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 16px;
-  background: #fff; color: var(--text); border: 1px solid var(--border-strong);
-  border-radius: 4px; font-family: 'Red Hat Mono', monospace; font-size: 13px; line-height: 1.6; resize: none;
-}
-.section-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.section-header h3 { margin: 0; font-size: 14px; color: var(--text); }
 </style>
 </head>
 <body>
@@ -361,12 +344,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
 
       <div class="warning-box" id="buildWarning" style="display:none; margin:0;"></div>
 
-      <!-- Tabs -->
-      <div class="tab-bar">
-        <button class="tab-btn active" data-tab="slide" onclick="switchTab('slide')">슬라이드</button>
-        <button class="tab-btn" data-tab="content" onclick="switchTab('content')">Content.md</button>
-      </div>
-
       <!-- Slide: viewer toolbar + preview + collapsible raw-HTML editor -->
       <div id="slideTab">
         <div class="viewer-toolbar" id="viewerToolbar">
@@ -411,14 +388,6 @@ main.content { flex: 1; min-height: 0; display: flex; }
         </div>
       </div>
 
-      <!-- Content Editor -->
-      <div class="content-editor" id="contentTab">
-        <div class="section-header">
-          <h3>Content.md</h3>
-          <button class="btn btn-primary" onclick="saveContent()" style="font-size:12px; padding:5px 12px;">저장</button>
-        </div>
-        <textarea id="contentEditor" spellcheck="false"></textarea>
-      </div>
     </div>
   </div>
 </main>
@@ -1366,6 +1335,14 @@ function buildWysiwygOverlayScript(colors) {
     el.style.top = (((r.top - box.top) / box.height) * 100).toFixed(3) + '%';
   }
 
+  // <img> elements are natively draggable by default in every browser —
+  // without this, starting a drag on an image kicks off the browser's own
+  // HTML5 drag-and-drop (a ghost thumbnail trailing the cursor, snapping
+  // back on drop) at the same time as the custom mousedown/mousemove drag
+  // below, fighting each other and making image moves feel forced/jumpy
+  // compared to shapes (plain <div>s, which aren't draggable by default).
+  document.addEventListener('dragstart', function (e) { e.preventDefault(); });
+
   var DRAG_THRESHOLD = 4;
   var dragEl = null, dragBox = null, dragStartX = 0, dragStartY = 0, dragOffX = 0, dragOffY = 0, dragMoved = false;
   var dragChromeStart = null; // toolbar/handle starting positions, snapshotted once per drag — see mousemove below
@@ -2012,7 +1989,6 @@ function resetWysiwygBusyState() {
 function setNavigationLocked(locked) {
   document.querySelector('.masthead').classList.toggle('nav-locked', locked);
   document.querySelector('.slide-sidebar').classList.toggle('nav-locked', locked);
-  document.querySelector('.tab-bar').classList.toggle('nav-locked', locked);
   document.querySelector('.toolbar').classList.toggle('nav-locked', locked);
   document.querySelector('.ai-edit-bar').classList.toggle('nav-locked', locked);
   document.querySelector('.viewer-toolbar').classList.toggle('nav-locked', locked);
@@ -2250,38 +2226,6 @@ async function saveSlideHtml() {
   } else {
     showToast('저장 실패', true);
   }
-}
-
-async function loadContent() {
-  const res = await fetch('/api/projects/' + projectName + '/content');
-  if (res.ok) {
-    const data = await res.json();
-    document.getElementById('contentEditor').value = data.content;
-  }
-}
-
-async function saveContent() {
-  const content = document.getElementById('contentEditor').value;
-  const res = await fetch('/api/projects/' + projectName + '/content', {
-    method: 'PUT',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({content})
-  });
-  if (res.ok) showToast('Content.md 저장 완료');
-}
-
-function switchTab(tab) {
-  if (tab !== 'slide' && blockIfAiEditBusy()) return;
-  if (tab !== 'slide' && !confirmDiscardIfDirty()) return;
-  if (tab !== 'slide') {
-    setDirty(false);
-    htmlCM.setValue(originalHtml);
-  }
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  document.getElementById('slideTab').style.display = tab === 'slide' ? 'flex' : 'none';
-  document.getElementById('contentTab').style.display = tab === 'content' ? 'flex' : 'none';
-  if (tab === 'content') loadContent();
-  if (tab === 'slide') requestAnimationFrame(fitPreviewFrame);
 }
 
 async function buildPptx() {
