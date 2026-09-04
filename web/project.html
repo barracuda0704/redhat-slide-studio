@@ -313,6 +313,10 @@ main.content { flex: 1; min-height: 0; display: flex; }
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           프레젠테이션
         </button>
+        <button class="btn" id="themeReviewBtn" onclick="runThemeReview()" disabled title="슬라이드 간 톤앤매너(색상·타이포·레이아웃)가 어긋난 곳을 AI로 찾아 수정 제안">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          테마 일관성 검토
+        </button>
         <button class="btn btn-danger" onclick="deleteProject()">삭제</button>
       </div>
 
@@ -432,6 +436,23 @@ main.content { flex: 1; min-height: 0; display: flex; }
   </div>
 </div>
 
+<div class="modal-overlay" id="themeReviewModal" style="display:none" onclick="if(event.target===this) closeThemeReviewModal()">
+  <div class="modal-box" style="width:560px; max-height:80vh; display:flex; flex-direction:column;">
+    <div class="modal-header">
+      <strong>🎨 테마 일관성 검토</strong>
+      <button class="modal-close" onclick="closeThemeReviewModal()">✕</button>
+    </div>
+    <div class="modal-body" id="themeReviewBody" style="overflow-y:auto; flex:1;">
+      <div id="themeReviewStatus" style="padding:24px; text-align:center; color:var(--text-secondary);">덱 전체를 검토하는 중입니다...</div>
+      <div id="themeReviewList"></div>
+    </div>
+    <div class="modal-footer" id="themeReviewFooter" style="display:none; justify-content:flex-end; gap:8px; padding:12px 16px; border-top:1px solid var(--border);">
+      <button class="btn" onclick="closeThemeReviewModal()">닫기</button>
+      <button class="btn btn-primary" id="applyAllThemeFixesBtn" onclick="applyAllThemeFixes()">전체 적용</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const ICON_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>';
 const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h4"/><path d="M15 16l4-4-4-4"/><path d="M19 12H9"/></svg>';
@@ -534,6 +555,7 @@ async function loadProject(autoSelect = true) {
   document.getElementById('exportPdfBtn').disabled = !hasSlides;
   document.getElementById('presentBtn').disabled = !hasSlides;
   document.getElementById('imageGenBtn').disabled = !hasSlides;
+  document.getElementById('themeReviewBtn').disabled = !(project.slides && project.slides.length > 1);
 
   const warningEl = document.getElementById('buildWarning');
   const warningText = project.build_warning || project.generation_warning;
@@ -718,6 +740,7 @@ function buildWysiwygOverlayScript(colors) {
     if (el._wysiwygEditableWired) return;
     el._wysiwygEditableWired = true;
     el.addEventListener('input', function () {
+      checkOverflow(el);
       clearTimeout(el._wysiwygEditTimer);
       el._wysiwygEditTimer = setTimeout(syncBack, 500);
     });
@@ -1983,6 +2006,103 @@ async function submitImageGen() {
   document.querySelector('.ai-processing-text').textContent = 'AI 반영중';
   igPendingRegion = null;
   removeImageGenRubber();
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Deck-wide theme/tone consistency check — a user-triggered (not automatic)
+// batch review, since it costs one AI call per slide. Reuses the plain
+// save-slide endpoint to apply an accepted fix, so it gets the same
+// backup-on-first-save/되돌리기 semantics as any other slide edit for free.
+let themeReviewResults = [];
+
+async function runThemeReview() {
+  if (blockIfAiEditBusy()) return;
+  themeReviewResults = [];
+  document.getElementById('themeReviewModal').style.display = 'flex';
+  document.getElementById('themeReviewStatus').style.display = 'block';
+  document.getElementById('themeReviewStatus').textContent = '덱 전체를 검토하는 중입니다... (슬라이드 수에 따라 시간이 걸릴 수 있습니다)';
+  document.getElementById('themeReviewList').innerHTML = '';
+  document.getElementById('themeReviewFooter').style.display = 'none';
+  aiEditInProgress = true;
+  try {
+    const res = await fetch('/api/projects/' + projectName + '/review-consistency', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { showToast('테마 검토 실패: ' + (data.detail || ''), true); closeThemeReviewModal(); return; }
+    themeReviewResults = data.results || [];
+    renderThemeReviewResults();
+  } catch (e) {
+    showToast('테마 검토 오류: ' + e.message, true);
+    closeThemeReviewModal();
+  }
+  aiEditInProgress = false;
+}
+
+function renderThemeReviewResults() {
+  const statusEl = document.getElementById('themeReviewStatus');
+  const listEl = document.getElementById('themeReviewList');
+  if (themeReviewResults.length === 0) {
+    statusEl.style.display = 'block';
+    statusEl.textContent = '모든 슬라이드가 일관된 톤앤매너를 유지하고 있습니다.';
+    listEl.innerHTML = '';
+    document.getElementById('themeReviewFooter').style.display = 'none';
+    return;
+  }
+  statusEl.style.display = 'none';
+  document.getElementById('themeReviewFooter').style.display = 'flex';
+  listEl.innerHTML = themeReviewResults.map((r) => (
+    '<div style="border:1px solid var(--border); border-radius:6px; padding:12px; margin-bottom:10px;">' +
+    '<div style="font-weight:600; margin-bottom:4px;">' + escapeHtml(r.filename) + '</div>' +
+    '<div style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;">' + escapeHtml(r.reason) + '</div>' +
+    '<div style="display:flex; justify-content:flex-end; gap:8px;">' +
+    '<button class="btn" onclick="dismissThemeFix(\'' + r.filename + '\')">무시</button>' +
+    '<button class="btn btn-primary" onclick="applyThemeFix(\'' + r.filename + '\')">이 슬라이드 적용</button>' +
+    '</div></div>'
+  )).join('');
+}
+
+function dismissThemeFix(filename) {
+  themeReviewResults = themeReviewResults.filter((r) => r.filename !== filename);
+  renderThemeReviewResults();
+}
+
+async function applyThemeFix(filename) {
+  const result = themeReviewResults.find((r) => r.filename === filename);
+  if (!result || !result.fixed_html) return;
+  if (filename === currentSlide && !confirmDiscardIfDirty()) return;
+  try {
+    const res = await fetch('/api/projects/' + projectName + '/slides/' + filename, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({html: result.fixed_html}),
+    });
+    if (!res.ok) { showToast(filename + ' 적용 실패', true); return; }
+    invalidateThumb(filename);
+    if (filename === currentSlide) {
+      originalHtml = result.fixed_html;
+      htmlCM.setValue(result.fixed_html);
+    }
+    themeReviewResults = themeReviewResults.filter((r) => r.filename !== filename);
+    renderThemeReviewResults();
+    showToast(filename + ' 슬라이드에 테마 수정을 적용했습니다.');
+  } catch (e) {
+    showToast('적용 오류: ' + e.message, true);
+  }
+}
+
+async function applyAllThemeFixes() {
+  for (const filename of themeReviewResults.map((r) => r.filename)) {
+    await applyThemeFix(filename);
+  }
+}
+
+function closeThemeReviewModal() {
+  document.getElementById('themeReviewModal').style.display = 'none';
+  themeReviewResults = [];
 }
 
 // On success renderPreview() reloads the iframe, which wipes the WYSIWYG

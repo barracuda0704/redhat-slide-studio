@@ -385,6 +385,75 @@ def apply_edit_instruction(html: str, instruction: str, target_html: str | None 
     return m.group(1).strip() if m else text.strip()
 
 
+def _consistency_system(theme_css: str) -> str:
+    return f"""당신은 Red Hat 슬라이드 디자인 감수자입니다. 아래 "비교 대상 슬라이드"들과
+비교했을 때, "검토할 슬라이드"가 같은 덱의 일부라고 느껴지지 않을 정도로 톤앤매너(색상
+사용, 타이포그래피 크기/굵기 위계, 여백·레이아웃 패턴, 아이콘/이미지 스타일, 어투)가
+어긋나는지 판단합니다.
+
+## 규칙
+- 비교 대상 슬라이드가 여러 장이면, 그중 다수가 공유하는 스타일을 그 덱의 기준(theme.css를
+  따르는 표준)으로 보세요. "검토할 슬라이드"가 그 다수 기준과 다르면 어긋난 것이고, 반대로
+  비교 대상 쪽이 소수/특이 사례이고 "검토할 슬라이드"가 오히려 theme.css 표준에 더 가깝다면
+  어긋나지 않은 것입니다 — 단순히 서로 다르다는 이유만으로 "검토할 슬라이드"를 고치지 마세요.
+- 내용(사실관계·문구)은 절대 바꾸지 마세요. 오직 시각적 톤앤매너·구조적 관례만 봅니다.
+- 사소한 차이(슬라이드마다 당연히 다를 수 있는 레이아웃, 예: 표 vs 카드형 등 콘텐츠 특성상
+  불가피한 차이)는 어긋남으로 보지 마세요. 명백히 이질적인 경우만 표시하세요.
+- 어긋난다고 판단되면, 다수 기준에 맞춰 스타일만 고친 완성된 HTML을 주세요 (구조·클래스명은
+  최대한 유지, 내용은 그대로).
+- word-break: keep-all (한글 텍스트) 유지.
+
+## PPTX 변환 필수 규칙 (수정본에도 반드시 지켜야 함)
+1. 모든 글자는 반드시 `<p>`, `<h1>~<h6>`, `<ul>`, `<ol>` 태그 안에만 있어야 합니다.
+2. `<h1>~<h6>`, `<p>`, `<ul>`, `<ol>`, `<li>` 태그 자체에는 background, border, box-shadow를
+   적용하지 마세요 — 감싸는 `<div>`에 적용하세요.
+3. 본문이 720×405pt 캔버스(패딩 제외 실사용 335pt 세로)를 넘지 않도록 하세요.
+
+## 참고 theme.css
+```css
+{theme_css}
+```
+
+## 출력 형식
+설명 없이 아래 JSON 하나만 출력하세요 (fixed_html은 matches가 false일 때만 포함):
+```json
+{{"matches": true|false, "reason": "판단 이유 한두 문장", "fixed_html": "<!DOCTYPE html>..."}}
+```
+"""
+
+
+def review_slide_consistency(slide_html: str, sibling_htmls: list[str]) -> dict:
+    theme_css = _load_theme_css(settings.ENGINE_DIR)
+    client = _get_client()
+    siblings_block = "\n\n".join(
+        f"### 비교 대상 슬라이드 {i + 1}\n```html\n{h}\n```" for i, h in enumerate(sibling_htmls)
+    )
+    user_msg = (
+        f"{siblings_block}\n\n### 검토할 슬라이드\n```html\n{slide_html}\n```"
+        if siblings_block else f"### 검토할 슬라이드\n```html\n{slide_html}\n```"
+    )
+    response = _create_message(client,
+        model=settings.MODEL_NAME,
+        max_tokens=settings.MAX_OUTPUT_TOKENS,
+        system=_consistency_system(theme_css),
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    text = response.content[0].text
+    m = re.search(r'```json\s*\n(.*?)```', text, re.DOTALL)
+    raw = m.group(1).strip() if m else text.strip()
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"matches": True, "reason": "검토 결과를 해석하지 못해 건너뜀", "fixed_html": None}
+    if not isinstance(result, dict) or "matches" not in result:
+        return {"matches": True, "reason": "검토 결과를 해석하지 못해 건너뜀", "fixed_html": None}
+    return {
+        "matches": bool(result.get("matches")),
+        "reason": str(result.get("reason") or ""),
+        "fixed_html": result.get("fixed_html") if not result.get("matches") else None,
+    }
+
+
 def _parse_slides(text: str) -> list[dict]:
     pattern = r'###\s+(slide\d+-[a-z0-9-]+)\s*\n```html\s*\n(.*?)```'
     matches = re.findall(pattern, text, re.DOTALL)

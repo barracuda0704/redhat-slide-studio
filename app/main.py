@@ -26,7 +26,7 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="stati
 @app.middleware("http")
 async def no_cache_static(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith("/static/"):
+    if request.url.path.startswith("/static/") or request.url.path.startswith("/projects/"):
         response.headers["Cache-Control"] = "no-cache"
     return response
 
@@ -442,6 +442,44 @@ async def api_ai_edit_slide(name: str, filename: str, body: AiEditRequest, _: Us
         raise HTTPException(400, "수정 요청 내용을 입력하세요.")
     new_html = await asyncio.to_thread(generator.apply_edit_instruction, html, body.instruction, body.target_html)
     return {"html": new_html}
+
+
+@app.post("/api/projects/{name}/review-consistency")
+async def api_review_consistency(name: str, _: User = Depends(get_current_user)):
+    from . import generator
+    filenames = project_manager.list_slides(name)
+    if len(filenames) < 2:
+        return {"results": []}  # nothing to compare a lone slide against
+    htmls = {f: project_manager.get_slide_html(name, f) for f in filenames}
+
+    sem = asyncio.Semaphore(3)  # bound concurrent Claude calls per review run
+    n = len(filenames)
+    # Anchor each slide's comparison against a fixed {first, middle, last}
+    # sample of the deck rather than its immediate neighbors. Neighbor-based
+    # sampling has no way to tell which of two adjacent slides is the actual
+    # outlier — a single off-theme slide sandwiched between two normal ones
+    # gets ALL THREE flagged, since each only ever sees the others as "not
+    # matching its neighbor". A fixed anchor sample gives every slide the
+    # same reference frame, so one bad slide can corrupt at most one anchor
+    # instead of appearing symmetrically "wrong" to everyone next to it.
+    anchor_indices = sorted({0, n // 2, n - 1})
+
+    async def review_one(i: int, filename: str) -> dict | None:
+        sibling_indices = [j for j in anchor_indices if j != i] or [j for j in range(n) if j != i][:2]
+        siblings = [htmls[filenames[j]] for j in sibling_indices]
+        async with sem:
+            try:
+                result = await asyncio.to_thread(
+                    generator.review_slide_consistency, htmls[filename], siblings
+                )
+            except Exception:
+                return None  # one slide's review failing shouldn't fail the whole batch
+        if result["matches"]:
+            return None
+        return {"filename": filename, "reason": result["reason"], "fixed_html": result["fixed_html"]}
+
+    results = await asyncio.gather(*(review_one(i, f) for i, f in enumerate(filenames)))
+    return {"results": [r for r in results if r]}
 
 
 @app.get("/api/projects/{name}/slides/{filename}/preview", response_class=HTMLResponse)

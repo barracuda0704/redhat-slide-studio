@@ -505,9 +505,9 @@ class ProjectManager:
                 if error_count:
                     meta["build_warning"] = (
                         f"{error_count}개 슬라이드가 PPTX 변환에 실패해 누락되었습니다 "
-                        f"(성공 {success_count} / 실패 {error_count}). HTML 편집기에서 텍스트가 "
-                        f"<p>/<h1>~<h6>/<ul>/<ol> 태그로 감싸져 있는지, 텍스트 태그에 배경·테두리가 "
-                        f"적용되어 있지 않은지 확인하세요."
+                        f"(성공 {success_count} / 실패 {error_count}). 슬라이드 하단에 빨간 테두리로 "
+                        f"넘침(overflow) 경고가 표시된 텍스트가 있는지, 또는 텍스트가 도형·이미지로 "
+                        f"가려진 곳이 있는지 확인 후 AI 수정 기능으로 고쳐보세요."
                     )
                 else:
                     meta.pop("build_warning", None)
