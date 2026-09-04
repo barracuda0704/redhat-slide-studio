@@ -8,7 +8,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     APP_TITLE: str = "Slide Studio"
-    DATA_DIR: str = "/app/data"
+    # A leftover Docker-container path ("/app/data") sat here as the default
+    # after the native launchd migration — harmless only because .env always
+    # overrides it, but a fresh checkout without that override would try to
+    # write to a path that doesn't exist on this host.
+    DATA_DIR: str = str(BASE_DIR / "data")
     ENGINE_DIR: str = str(BASE_DIR / "engine")
 
     USE_VERTEX: bool = True
