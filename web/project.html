@@ -165,7 +165,7 @@ main.content { flex: 1; min-height: 0; display: flex; }
   display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; flex-wrap: wrap;
 }
-.toolbar.nav-locked, .viewer-toolbar.nav-locked, .ai-edit-bar.nav-locked, .html-accordion.nav-locked {
+.toolbar.nav-locked, .viewer-toolbar.nav-locked, .ai-edit-bar.nav-locked {
   opacity: .55; pointer-events: none;
 }
 /* The blur itself lives on the overlay (backdrop-filter), not on the
@@ -232,36 +232,10 @@ main.content { flex: 1; min-height: 0; display: flex; }
   color: #fff; font-size: 12px; font-family: -apple-system, "Segoe UI", sans-serif;
 }
 
-.html-accordion { flex-shrink: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); }
-.html-accordion-header {
-  display: flex; align-items: center; gap: 8px; padding: 10px 16px; cursor: pointer;
-  font-size: 13px; font-weight: 700; color: var(--text); user-select: none;
-}
-.html-accordion-header .chevron { transition: transform .15s; color: var(--text-muted); }
-.html-accordion.open .html-accordion-header { border-bottom: 1px solid var(--border); }
-.html-accordion.open .html-accordion-header .chevron { transform: rotate(90deg); }
 .html-dirty-dot {
   display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--rh-red); flex-shrink: 0;
 }
 .html-dirty-dot.show { display: inline-block; }
-.html-accordion-body { display: none; flex-direction: column; gap: 8px; height: 360px; padding: 0 16px 12px; box-sizing: border-box; }
-.html-accordion.open .html-accordion-body { display: flex; }
-.html-accordion-body .CodeMirror {
-  flex: 1; min-height: 0; height: 100%; width: 100%;
-  border: 1px solid var(--border-strong); border-radius: 4px;
-  font-family: 'Red Hat Mono', monospace; font-size: 12px; line-height: 1.5;
-}
-.html-accordion-body .CodeMirror-activeline-background { background: var(--rh-red-tint); }
-
-.resize-handle {
-  flex-shrink: 0; height: 12px; margin: 0 -16px; cursor: row-resize;
-  display: flex; align-items: center; justify-content: center; position: relative;
-}
-.resize-handle::after {
-  content: ''; width: 36px; height: 4px; border-radius: 2px; background: var(--border-strong);
-  transition: background .15s;
-}
-.resize-handle:hover::after { background: var(--rh-red); }
 
 .viewer-toolbar {
   flex-shrink: 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
@@ -376,16 +350,14 @@ main.content { flex: 1; min-height: 0; display: flex; }
           <button class="btn btn-primary" id="aiEditBtn" onclick="applyAiEdit()">AI 수정</button>
         </div>
 
-        <div class="html-accordion" id="htmlAccordion">
-          <div class="html-accordion-header" onclick="toggleHtmlEditor()">
-            <svg class="chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-            <span id="htmlEditorTitle">HTML 편집</span>
-          </div>
-          <div class="html-accordion-body">
-            <div class="resize-handle" id="resizeHandle" title="드래그해서 높이 조절"></div>
-            <textarea id="htmlEditor" spellcheck="false"></textarea>
-          </div>
-        </div>
+        <!-- Raw HTML editing is intentionally not exposed in the UI anymore
+             — everything goes through the WYSIWYG tools (drag/resize,
+             inline text edit, AI edit, image gen) instead. This textarea
+             stays in the DOM (hidden) because the CodeMirror instance
+             attached to it is still the app's in-memory model of the
+             current slide's HTML — syncBack()/saveSlideHtml()/
+             revertUnsavedChanges()/AI-edit all read and write through it. -->
+        <textarea id="htmlEditor" spellcheck="false" style="display:none"></textarea>
       </div>
 
     </div>
@@ -633,48 +605,6 @@ async function loadProject(autoSelect = true) {
   }
 }
 
-function toggleHtmlEditor() {
-  const open = document.getElementById('htmlAccordion').classList.toggle('open');
-  if (open) requestAnimationFrame(() => htmlCM.refresh());
-  requestAnimationFrame(fitPreviewFrame);
-}
-
-// Drag the handle at the top of the HTML editor to resize it against the
-// preview above — independent of the accordion's own collapse/expand toggle.
-(function setupResizeHandle() {
-  const handle = document.getElementById('resizeHandle');
-  const body = document.querySelector('.html-accordion-body');
-  let dragging = false;
-  let startY = 0;
-  let startHeight = 0;
-
-  handle.addEventListener('mousedown', (e) => {
-    dragging = true;
-    startY = e.clientY;
-    startHeight = body.getBoundingClientRect().height;
-    document.body.style.userSelect = 'none';
-    e.preventDefault();
-  });
-
-  window.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const delta = startY - e.clientY; // drag up = grow the editor
-    const slideTab = document.getElementById('slideTab');
-    const maxHeight = slideTab.clientHeight - 160; // keep some room for the preview
-    const newHeight = Math.min(Math.max(startHeight + delta, 140), Math.max(maxHeight, 140));
-    body.style.height = newHeight + 'px';
-    htmlCM.setSize(null, '100%');
-    fitPreviewFrame();
-  });
-
-  window.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false;
-    document.body.style.userSelect = '';
-    htmlCM.refresh();
-  });
-})();
-
 // WYSIWYG overlay injected into the preview iframe's own document. The
 // iframe is same-origin (srcdoc inherits the parent's origin), so this
 // script can call window.parent.* directly — no postMessage plumbing
@@ -776,6 +706,63 @@ function buildWysiwygOverlayScript(colors) {
   // everything else gets the generic shape toolbar (background/radius/
   // z-index/visibility/resize/drag) instead.
   function isTextLeaf(el) { return el && /^(P|H1|H2|H3|H4|H5|H6|LI)$/.test(el.tagName); }
+
+  // Direct inline editing — like the reference gallery's edit mode, but
+  // scoped to whichever text leaf is currently selected instead of a
+  // global on/off toggle, since Studio always has "editing" live. Wired
+  // once per element (guarded) since showToolbar() re-runs this every time
+  // any toolbar button is clicked, not just on first selection.
+  function makeTextEditable(el) {
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    if (el._wysiwygEditableWired) return;
+    el._wysiwygEditableWired = true;
+    el.addEventListener('input', function () {
+      clearTimeout(el._wysiwygEditTimer);
+      el._wysiwygEditTimer = setTimeout(syncBack, 500);
+    });
+  }
+
+  // contentEditable only gets switched on inside showToolbar(), which runs
+  // as part of handling the same click that selected the element — too
+  // late for the browser's own native "click inside contenteditable places
+  // the cursor there" handling to have applied. Without this, the first
+  // click on a not-yet-selected text leaf shows the toolbar but drops the
+  // cursor at a default position instead of where the user actually
+  // clicked, requiring an unintuitive second click.
+  function placeCaretAt(el, x, y) {
+    el.focus();
+    var range = null;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(x, y);
+    } else if (document.caretPositionFromPoint) {
+      var pos = document.caretPositionFromPoint(x, y);
+      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
+    }
+    if (range) {
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+
+  // Called whenever the current selection is about to change (a new
+  // element clicked, or cleared entirely) — turns contenteditable back off
+  // so only the actively-selected text leaf ever shows a text cursor, and
+  // flushes any not-yet-debounced edit immediately rather than losing it
+  // to a timer that never gets to fire once the element stops being live.
+  function deselectCurrent() {
+    if (!selected) return;
+    selected.removeAttribute('data-wysiwyg-selected');
+    if (isTextLeaf(selected)) {
+      selected.contentEditable = 'false';
+      if (selected._wysiwygEditTimer) {
+        clearTimeout(selected._wysiwygEditTimer);
+        selected._wysiwygEditTimer = null;
+        syncBack();
+      }
+    }
+  }
   // Bare inline formatting tags (a <span> coloring one word inside a <p>,
   // for example) are never meant to be selected on their own — skip them so
   // a click anywhere inside styled text resolves to the containing text
@@ -801,7 +788,7 @@ function buildWysiwygOverlayScript(colors) {
     if (p) p.remove();
   }
   function clearSelection() {
-    if (selected) selected.removeAttribute('data-wysiwyg-selected');
+    deselectCurrent();
     selected = null;
     removeToolbar();
     removeColorPopup();
@@ -824,6 +811,20 @@ function buildWysiwygOverlayScript(colors) {
       n.removeAttribute('data-wysiwyg-hover');
       n.removeAttribute('data-wysiwyg-selected');
     });
+    // contenteditable/spellcheck are editor-only state from inline text
+    // editing (makeTextEditable()) — never part of the actual slide markup,
+    // so they must not leak into the saved HTML the same way the
+    // data-wysiwyg-* attributes above don't.
+    clone.querySelectorAll('[contenteditable]').forEach(function (n) { n.removeAttribute('contenteditable'); });
+    clone.querySelectorAll('[spellcheck]').forEach(function (n) { n.removeAttribute('spellcheck'); });
+    // syncBack() clones the LIVE document, which also includes anything a
+    // browser extension injected into this page (found in production: a
+    // mouse-tooltip-translator-style extension injecting <style
+    // id="mttstyle">/tippy.js tooltip markup that then got saved as if it
+    // were part of the slide). Strip known extension-injection patterns —
+    // this can't catch every possible extension, but removes the one
+    // actually observed corrupting saved slides.
+    clone.querySelectorAll('style[id^="mtt"], [id^="mttContainer"], [data-tippy-root], .tippy-box').forEach(function (n) { n.remove(); });
     window.parent.__wysiwygSync('<' + '!DOCTYPE html>\\n' + clone.outerHTML);
   }
 
@@ -867,6 +868,7 @@ function buildWysiwygOverlayScript(colors) {
     if (el.tagName === 'IMG') {
       toolbar.innerHTML = warnLabel + '<span class="wt-label">드래그로 이동</span><button data-act="more" title="배경·모서리·순서·숨김">⋯</button><button data-act="ai">AI 수정</button><button data-act="delete" title="삭제">삭제</button>';
     } else if (isTextLeaf(el)) {
+      makeTextEditable(el);
       var curColor = rgbToHex(getComputedStyle(el).color);
       var elCs = getComputedStyle(el);
       var boldOn = parseInt(elCs.fontWeight, 10) >= 700;
@@ -1251,11 +1253,17 @@ function buildWysiwygOverlayScript(colors) {
     if (suppressNextClick) { suppressNextClick = false; return; }
     var el = closestEditable(e.target);
     if (!el) { clearSelection(); return; }
+    // Already the selected, actively-editable text leaf — let the native
+    // click-to-place-cursor behavior happen instead of preventing default
+    // and rebuilding the toolbar, which would otherwise fight the user
+    // repositioning their cursor mid-edit.
+    if (el === selected && el.isContentEditable) return;
     e.preventDefault();
-    if (selected) selected.removeAttribute('data-wysiwyg-selected');
+    deselectCurrent();
     selected = el;
     el.setAttribute('data-wysiwyg-selected', '');
     showToolbar(el);
+    if (isTextLeaf(el)) placeCaretAt(el, e.clientX, e.clientY);
     window.focus(); // so the arrow-key nudge / Delete-to-remove handler below actually receives key events
   });
 
@@ -1268,6 +1276,7 @@ function buildWysiwygOverlayScript(colors) {
     if (!selected) return;
     var targetTag = e.target.tagName;
     if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') return; // don't hijack typing in the AI-edit input
+    if (selected.isContentEditable) return; // let native text deletion/typing happen inside the active text leaf
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       var el = selected;
@@ -1554,7 +1563,6 @@ async function selectSlide(filename) {
 
   document.getElementById('previewEmpty').style.display = 'none';
   document.getElementById('previewFrame').style.display = 'block';
-  document.getElementById('htmlEditorTitle').textContent = 'HTML 편집 — ' + filename;
 
   if (!previewResizeObserver) {
     previewResizeObserver = new ResizeObserver(fitPreviewFrame);
@@ -1992,7 +2000,6 @@ function setNavigationLocked(locked) {
   document.querySelector('.toolbar').classList.toggle('nav-locked', locked);
   document.querySelector('.ai-edit-bar').classList.toggle('nav-locked', locked);
   document.querySelector('.viewer-toolbar').classList.toggle('nav-locked', locked);
-  document.querySelector('.html-accordion').classList.toggle('nav-locked', locked);
   document.getElementById('previewContainer').classList.toggle('nav-locked', locked);
   // Also freeze the WYSIWYG overlay inside the preview iframe — otherwise
   // the outer chrome is locked but the user could still select/drag/add
