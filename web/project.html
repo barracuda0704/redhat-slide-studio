@@ -1780,6 +1780,19 @@ document.addEventListener('fullscreenchange', () => {
   }
 });
 
+// Arrow-key navigation in the normal editing view (not presentation mode).
+// Keys pressed while focus is inside the WYSIWYG preview iframe never reach
+// this listener at all (separate browsing context), so this can't fight
+// with the overlay's own arrow-key nudge of a selected element/shape.
+function stepSlide(delta) {
+  const slides = (project && project.slides) || [];
+  const idx = slides.indexOf(currentSlide);
+  if (idx === -1) return;
+  const next = idx + delta;
+  if (next < 0 || next >= slides.length) return;
+  selectSlide(slides[next]);
+}
+
 function presentStep(delta) {
   const slides = project && project.slides || [];
   const next = presentIndex + delta;
@@ -2167,6 +2180,8 @@ document.addEventListener('keydown', (e) => {
   if (isTypingContext()) return;
   if (e.key === 'f' || e.key === 'F') { e.preventDefault(); enterPresentMode(); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && currentSlide) { e.preventDefault(); deleteSlide(currentSlide); }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); stepSlide(1); }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); stepSlide(-1); }
 });
 
 document.getElementById('assetUploadInput').addEventListener('change', async (e) => {
