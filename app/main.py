@@ -552,6 +552,16 @@ async def api_review_consistency(name: str, _: User = Depends(get_current_user))
     if len(filenames) < 2:
         return {"results": []}  # nothing to compare a lone slide against
     htmls = {f: project_manager.get_slide_html(name, f) for f in filenames}
+    # Was comparing slides only to each other — if the whole deck (or the
+    # anchor slides themselves) already drifted from the theme, everything
+    # looks "consistent" and nothing gets flagged. theme_id makes the actual
+    # theme guide document (engine/themes/{theme}.md) the primary reference,
+    # same as the automatic post-generation QA pass already does.
+    try:
+        project = project_manager.get_project(name)
+    except ValueError:
+        project = {}
+    theme = project.get("theme", "redhat-enterprise")
 
     sem = asyncio.Semaphore(3)  # bound concurrent Claude calls per review run
     n = len(filenames)
@@ -571,7 +581,7 @@ async def api_review_consistency(name: str, _: User = Depends(get_current_user))
         async with sem:
             try:
                 result = await asyncio.to_thread(
-                    generator.review_slide_consistency, htmls[filename], siblings
+                    generator.review_slide_consistency, htmls[filename], siblings, theme
                 )
             except Exception:
                 return None  # one slide's review failing shouldn't fail the whole batch
